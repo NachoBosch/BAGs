@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(not exist *)",
+      "Bash(powershell *)",
+      "Bash(python -c ' *)",
+      "Bash(python *)",
+      "Bash(Remove-Item *)",
+      "Bash(conda run *)",
+      "Bash(del *)",
+      "Bash(grep -v \"^$\")",
+      "Bash(grep -v \"conda\\\\|report\\\\|upgrade\\\\|http\\\\|CONDA\\\\|environ\\\\|miniconda\\\\|channel\\\\|platform\\\\|package\\\\|netrc\\\\|offline\\\\|user-agent\\\\|solver\\\\|envs\\\\|cache\\\\|metadata\\\\|populated\\\\|active\\\\|shell\\\\|config\\\\|virtual\\\\|base\\\\|version\\\\|administrator\\\\|Alternatively\\\\|Example\\\\|NODEFAULT\\\\|PSMODULE\\\\|REQUESTS\\\\|SSL_CERT\\\\|CURL\\\\|EXEPATH\\\\|HOMEPATH\\\\|PATH=\\\\|^$\")",
+      "Bash(pip install *)",
+      "Bash(pdflatex --version)",
+      "PowerShell(Get-Command *)",
+      "PowerShell($paths = @\\(\"$env:LOCALAPPDATA\\\\Programs\\\\MiKTeX\",\"C:\\\\texlive\",\"C:\\\\Program Files\\\\MiKTeX\",\"$env:USERPROFILE\\\\AppData\\\\Local\\\\Programs\\\\MiKTeX\"\\); foreach\\($p in $paths\\){ if\\(Test-Path $p\\){ \"FOUND: $p\" } }; Get-ChildItem -Path \"C:\\\\\" -Filter \"pdflatex.exe\" -Recurse -ErrorAction SilentlyContinue -Depth 4 | Select-Object -First 3 FullName)",
+      "PowerShell(python -c \"import pptx; print\\('pptx ok', pptx.__version__\\)\" 2>&1; python --version 2>&1)",
+      "PowerShell(pip install *)",
+      "Bash(PYTHONIOENCODING=utf-8 python -c ' *)"
+    ]
+  }
+}

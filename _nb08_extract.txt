@@ -1,0 +1,468 @@
+
+============================================================
+CELL 9
+============================================================
+# --- hiperparámetros finales (main.ipynb Thesis, post-Optuna) ---
+VAE_HP = dict(
+    hidden_dims=[512],
+    latent_dim=64,
+    beta_target=0.056663247229966504,
+    warmup_ep=73,
+    l2_reg=2.897389671945472e-07,
+    lr=0.001892443497356961,
+    recon_kind="mae",
+    drop_rate=0.036861053246000725,
+    activation="elu",
+    norm_kind="layernorm",
+    batch_size=64,
+    clipnorm=1.0,
+    epochs=96,  # sugerido por k-fold en main.ipynb
+)
+
+XGB_HP = dict(
+    n_estimators=2103,
+    max_depth=6,
+    learning_rate=0.011042092255313062,
+    subsample=0.5021328242984182,
+    colsample_bytree=0.9505971249574193,
+    reg_alpha=0.0013554585093299317,
+    reg_lambda=7.0841939500925095,
+    min_child_weight=1.1415352944950146,
+    gamma=0.6749458207517294,
+    tree_method="hist",
+    eval_metric="mae",
+    random_state=cfg.seed,
+    verbosity=0,
+)
+
+RIDGE_HP = dict(alpha=267.7011431833793)
+SVR_HP = dict(kernel="rbf", C=24.838197245440746, epsilon=1.9434322439739649, gamma="auto")
+
+DIAG_MAP = {"CN": 0.0, "AD": 1.0, "FTD": 2.0}
+cdf = cohort.set_index("record_id")
+print("HP cargados")
+
+============================================================
+CELL 10
+============================================================
+# --- helper: edad, sexo (Male=1), dx, T1w alineados a IDs ---
+def get_arrays(ids):
+    y = cdf.loc[ids, "age"].to_numpy(float)
+    sex = (cdf.loc[ids, "sex"].astype(str) == "Male").to_numpy(np.float32)
+    diag = cdf.loc[ids, "diagnosis"].map(DIAG_MAP).to_numpy(np.float32)
+    T1 = cdf.loc[ids, t1_cols].to_numpy(np.float32)
+    return y, sex, diag, T1
+
+y_tv, sex_tv, diag_tv, T1_tv = get_arrays(trainval_ids)
+y_te, sex_te, diag_te, T1_te = get_arrays(test_ids)
+print(y_tv.shape, T1_tv.shape)
+
+============================================================
+CELL 18
+============================================================
+# === HÍBRIDO: métricas topológicas (nb 02/03) + pipeline Thesis ===
+# TOPO: 6 métricas de grafos (umbral FC=0.20, atlas AAL, nb 02)
+TOPO = [
+    "local_efficiency", "global_efficiency", "clustering_coeff",
+    "fp_local_efficiency", "fp_betweenness", "fp_degree",
+]
+
+from src.utils_ids import normalize_record_id
+
+graph_df = pd.read_csv("outputs/graph_metrics_table.csv")
+graph_df["record_id"] = graph_df["MRI_ID"].map(normalize_record_id)
+graph_df = graph_df.drop_duplicates("record_id", keep="last")
+
+topo_df = graph_df.set_index("record_id")[TOPO]
+missing_tv = [rid for rid in trainval_ids if rid not in topo_df.index]
+missing_te = [rid for rid in test_ids if rid not in topo_df.index]
+
+print(f"TOPO disponible: {len(topo_df)} sujetos")
+print(f"cohorte Thesis: {len(cohort)} | faltan TOPO en trainval: {len(missing_tv)} | test: {len(missing_te)}")
+if missing_tv or missing_te:
+    raise ValueError(f"IDs sin TOPO (ej. { (missing_tv + missing_te)[:3] })")
+
+topo_df[TOPO].describe().round(3)
+
+============================================================
+CELL 28
+============================================================
+## BAG — Ridge Z+T1+sex+TOPO+educación+sitio
+Réplica de nb03: entrenar solo en CN (trainval), predecir toda la cohorte con casos completos, corregir sesgo (LOSO por sitio) y analizar BAG+/BAG-.
+
+
+============================================================
+CELL 31
+============================================================
+# --- modelo final Ridge (CN) + corrección de sesgo (LOSO sitio) ---
+sc_final = StandardScaler()
+X_cn_sc = sc_final.fit_transform(X_cn)
+ridge_final = Ridge(**RIDGE_HP, random_state=cfg.seed)
+ridge_final.fit(X_cn_sc, y_cn)
+pred_all = ridge_final.predict(sc_final.transform(X_all))
+
+sites_cn = demo_df.loc[ids_cn, "site"].values
+logo = LeaveOneGroupOut()
+pred_cv_cn = np.zeros(len(X_cn))
+for tr, te in logo.split(X_cn, y_cn, groups=sites_cn):
+    sc = StandardScaler()
+    sc.fit(X_cn[tr])
+    m = Ridge(**RIDGE_HP, random_state=cfg.seed)
+    m.fit(sc.transform(X_cn[tr]), y_cn[tr])
+    pred_cv_cn[te] = m.predict(sc.transform(X_cn[te]))
+
+r2_cv = r2_score(y_cn, pred_cv_cn)
+mae_cv = mean_absolute_error(y_cn, pred_cv_cn)
+print(f"LOSO-CV CN: R²={r2_cv:.3f} | MAE={mae_cv:.2f} años")
+
+bag_raw_cn = pred_cv_cn - y_cn
+slope, intercept, r_b, p_b, _ = stats.linregress(y_cn, bag_raw_cn)
+print(f"Correlación BAG~edad CN: r={r_b:.3f}, p={p_b:.4f}")
+
+bag_df["predicted_age"] = pred_all
+bag_df["BAG_raw"] = pred_all - bag_df["Age"]
+bag_df["BAG"] = bag_df["BAG_raw"] - (slope * bag_df["Age"] + intercept)
+bag_df["BAG_group"] = np.where(bag_df["BAG"] > 0, "BAG+", "BAG-")
+
+print("\nBAG por diagnóstico:")
+print(bag_df.groupby("diagnosis")["BAG"].agg(["mean", "std", "count"]).round(2))
+print("\nBAG+/BAG-:", bag_df["BAG_group"].value_counts().to_dict())
+
+
+============================================================
+CELL 41
+============================================================
+# --- setup mundo pequeño (réplica nb04) ---
+import networkx as nx
+import bct
+from pathlib import Path
+from itertools import combinations
+from scipy import stats
+from scipy.stats import mannwhitneyu
+from statsmodels.stats.multitest import multipletests
+from sklearn.model_selection import train_test_split
+from joblib import Parallel, delayed
+
+SW_OUT = Path("outputs/nb08_thesis/sw_metrics")
+SW_OUT.mkdir(parents=True, exist_ok=True)
+
+THRESHOLD  = 0.20
+N_NULL     = 20      # nb04 usaba 100; 20 suele estabilizar sigma/omega
+N_REWIRE   = 10
+QUICK_MODE = True
+N_PER_DX   = 10      # 10 por dx → ~30 sujetos
+N_JOBS     = 2       # paralelizar por sujeto (joblib)
+SEED       = cfg.seed
+
+print(f"cohorte Thesis n={len(cohort)} | fisher_z={cfg.fisher_z}")
+print(f"THRESHOLD={THRESHOLD} | N_NULL={N_NULL} | N_PER_DX={N_PER_DX} | N_JOBS={N_JOBS} | seed={SEED}")
+
+============================================================
+CELL 43
+============================================================
+# --- funciones nb04: umbral, métricas, nulos, índices SW ---
+
+def threshold_fixed(fc_z: np.ndarray, thr: float) -> np.ndarray:
+    mat = fc_z.copy()
+    np.fill_diagonal(mat, 0)
+    B = (mat >= thr).astype(float)
+    return np.maximum(B, B.T)
+
+
+def graph_metrics(B: np.ndarray) -> dict:
+    C = float(np.mean(bct.clustering_coef_bu(B)))
+    E_local = float(np.mean(bct.efficiency_bin(B, local=True)))
+    E_glob = float(bct.efficiency_bin(B, local=False))
+    D = bct.distance_bin(B)
+    L = float(bct.charpath(D, include_diagonal=False, include_infinite=False)[0])
+    return {"C": C, "L": L, "E_local": E_local, "E_global": E_glob}
+
+
+def edge_density(B: np.ndarray) -> float:
+    n = B.shape[0]
+    return float(B.sum()) / (n * (n - 1))
+
+
+def null_erdos_renyi(n: int, p: float, n_null: int, seed: int) -> dict:
+    Cs, Ls, Els, Egs = [], [], [], []
+    rng_local = np.random.default_rng(seed)
+    for _ in range(n_null):
+        G = nx.erdos_renyi_graph(n, p, seed=int(rng_local.integers(1e6)))
+        B_r = nx.to_numpy_array(G, dtype=float)
+        np.fill_diagonal(B_r, 0)
+        if nx.is_connected(G):
+            m = graph_metrics(B_r)
+            Cs.append(m["C"]); Ls.append(m["L"])
+            Els.append(m["E_local"]); Egs.append(m["E_global"])
+    return {
+        "C_rand": np.nanmean(Cs), "L_rand": np.nanmean(Ls),
+        "E_local_rand": np.nanmean(Els), "E_global_rand": np.nanmean(Egs),
+    }
+
+
+def null_ws_rewiring(B: np.ndarray, n_null: int, n_rewire: int) -> dict:
+    Cs, Ls, Els, Egs = [], [], [], []
+    for _ in range(n_null):
+        B_r, _ = bct.randmio_und(B, n_rewire)
+        B_r = (B_r > 0).astype(float)
+        np.fill_diagonal(B_r, 0)
+        G = nx.from_numpy_array(B_r)
+        if nx.is_connected(G):
+            m = graph_metrics(B_r)
+            Cs.append(m["C"]); Ls.append(m["L"])
+            Els.append(m["E_local"]); Egs.append(m["E_global"])
+    return {
+        "C_rand": np.nanmean(Cs), "L_rand": np.nanmean(Ls),
+        "E_local_rand": np.nanmean(Els), "E_global_rand": np.nanmean(Egs),
+    }
+
+
+def null_lattice(B: np.ndarray, n_rewire: int = 10) -> dict:
+    B_latt = bct.latmio_und(B, n_rewire)[0]
+    B_latt = (B_latt > 0).astype(float)
+    np.fill_diagonal(B_latt, 0)
+    m = graph_metrics(B_latt)
+    return {"C_latt": m["C"], "L_latt": m["L"]}
+
+
+def sigma(C, L, C_rand, L_rand) -> float:
+    if C_rand == 0 or L == 0:
+        return np.nan
+    return (C / C_rand) / (L / L_rand)
+
+
+def omega(L, C, L_rand, C_latt) -> float:
+    if L == 0 or C_latt == 0:
+        return np.nan
+    return (L_rand / L) - (C / C_latt)
+
+
+def sw_one_subject(row, fc_z, *, threshold, n_null, n_rewire, seed):
+    """Procesa un sujeto; devuelve dict de métricas o None si se omite."""
+    sub_id = row["record_id"]
+    B = threshold_fixed(fc_z, threshold)
+    G = nx.from_numpy_array(B)
+    p = edge_density(B)
+    n = B.shape[0]
+
+    if not nx.is_connected(G) or p == 0:
+        return None, sub_id
+
+    brain = graph_metrics(B)
+    sub_seed = seed + (hash(sub_id) % 10_000)
+    er = null_erdos_renyi(n, p, n_null, seed=sub_seed)
+    ws = null_ws_rewiring(B, n_null, n_rewire)
+    latt = null_lattice(B, n_rewire)
+
+    return {
+        "record_id": sub_id,
+        "diagnosis": row["diagnosis"],
+        "Age": row["Age"],
+        "site": row["site"],
+        "C": brain["C"],
+        "L": brain["L"],
+        "E_local": brain["E_local"],
+        "E_global": brain["E_global"],
+        "density": p,
+        "C_er": er["C_rand"],
+        "L_er": er["L_rand"],
+        "C_ws": ws["C_rand"],
+        "L_ws": ws["L_rand"],
+        "C_latt": latt["C_latt"],
+        "L_latt": latt["L_latt"],
+        "sigma_er": sigma(brain["C"], brain["L"], er["C_rand"], er["L_rand"]),
+        "sigma_ws": sigma(brain["C"], brain["L"], ws["C_rand"], ws["L_rand"]),
+        "omega_er": omega(brain["L"], brain["C"], er["L_rand"], latt["C_latt"]),
+        "omega_ws": omega(brain["L"], brain["C"], ws["L_rand"], latt["C_latt"]),
+    }, sub_id
+
+============================================================
+CELL 49
+============================================================
+## Criticalidad (réplica nb07 sobre cohorte Thesis)
+
+Réplica de `07_criticalidad_fixed.ipynb` usando `load_fc_vectors_for_ids` + `vector_to_matrix` (mismo pipeline Fisher-z que VAE/BAG).
+
+| Sección | Métricas | Cohorte |
+|---------|----------|---------|
+| λ₁, sensibilidad | Individual | **cohorte completa** (n≈1245) |
+| Avalanchas, σ ramificación | Grupal (matrices promedio) | promedio por diagnóstico |
+| Percolación S₁/S₂/χ | Individual | submuestra estratificada por `site` (10/dx) |
+
+Umbral proporcional **PROP = 10%**. Salidas: `outputs/nb08_thesis/criticality/` y `figs/08_crit_*.png`.
+
+============================================================
+CELL 52
+============================================================
+# --- Sección 1: λ₁ individual + referencia ER + rango dinámico ---
+
+lambda1_records = []
+for _, row in crit_meta.iterrows():
+    rid = row["record_id"]
+    B = threshold_proportional(fc_z_crit[rid])
+    lam1 = float(np.linalg.eigvalsh(B)[-1])
+    lambda1_records.append({
+        "record_id": rid, "diagnosis": row["diagnosis"], "Age": row["Age"], "lambda1": lam1,
+    })
+
+lambda1_df = pd.DataFrame(lambda1_records)
+lambda1_mean = {g: float(np.linalg.eigvalsh(adj_mean[g])[-1]) for g in DIAG_ORD}
+
+
+def er_lambda1_ref(density: float, n: int = N_ROI, n_ref: int = 100, seed: int = 42):
+    rng = np.random.default_rng(seed)
+    lambdas = []
+    for _ in range(n_ref):
+        G = nx.erdos_renyi_graph(n, density, seed=int(rng.integers(1e6)))
+        A = nx.to_numpy_array(G, dtype=float)
+        np.fill_diagonal(A, 0)
+        lambdas.append(np.linalg.eigvalsh(A)[-1])
+    return float(np.mean(lambdas)), float(np.std(lambdas))
+
+
+er_ref = {}
+for g in DIAG_ORD:
+    dens_g = adj_mean[g].sum() / 2 / (N_ROI * (N_ROI - 1) / 2)
+    mu_er, sd_er = er_lambda1_ref(dens_g)
+    er_ref[g] = {"mu": mu_er, "sd": sd_er, "density": dens_g, "lambda1_norm": lambda1_mean[g] / mu_er}
+    print(f"{g}: λ₁={lambda1_mean[g]:.3f}  λ₁_ER={mu_er:.3f}  λ₁_norm={er_ref[g]['lambda1_norm']:.3f}")
+
+lambda1_df["lambda1_norm"] = lambda1_df.apply(
+    lambda r: r["lambda1"] / er_ref[r["diagnosis"]]["mu"], axis=1,
+)
+
+
+def simulate_response(A: np.ndarray, h_vals: np.ndarray, n_steps: int = 500) -> np.ndarray:
+    n = A.shape[0]
+    responses = np.zeros(len(h_vals))
+    for i, h in enumerate(h_vals):
+        F = np.zeros(n)
+        for _ in range(n_steps):
+            F_new = 1 - np.exp(-h - A @ F)
+            if np.max(np.abs(F_new - F)) < 1e-9:
+                break
+            F = F_new
+        responses[i] = F.mean()
+    return responses
+
+
+def dynamic_range(h_vals, F):
+    F_norm = (F - F.min()) / (F.max() - F.min() + 1e-12)
+    idx01 = np.searchsorted(F_norm, 0.1)
+    idx09 = np.searchsorted(F_norm, 0.9)
+    if idx01 >= len(h_vals) or idx09 >= len(h_vals) or h_vals[idx01] <= 0:
+        return np.nan
+    return 10 * np.log10(h_vals[idx09] / h_vals[idx01])
+
+
+h_vals = np.logspace(-5, 1, 300)
+delta_vals = {}
+for g in DIAG_ORD:
+    F = simulate_response(adj_mean[g], h_vals)
+    delta_vals[g] = dynamic_range(h_vals, F)
+    print(f"  {g}: Δ={delta_vals[g]:.2f} dB")
+
+print("\nλ₁ individual (PROP=10%):")
+print(lambda1_df.groupby("diagnosis")["lambda1"].describe().round(3))
+
+============================================================
+CELL 54
+============================================================
+# --- Sección 2: avalanchas (matrices promedio grupales) ---
+np.random.seed(CRIT_SEED)
+p_crit = 1.0 / lambda1_mean["CN"]
+print(f"p = 1/λ₁_CN = {p_crit:.5f}")
+
+
+def simulate_avalanches(A: np.ndarray, p_activation: float, n_avalanchas: int):
+    n = A.shape[0]
+    neighbors = [np.where(A[i] > 0)[0] for i in range(n)]
+    sizes = np.empty(n_avalanchas, dtype=np.int32)
+    durations = np.empty(n_avalanchas, dtype=np.int32)
+    generations = []
+    for av in range(n_avalanchas):
+        seed_node = np.random.randint(0, n)
+        active, visited = {seed_node}, {seed_node}
+        gen_list = [1]
+        while active:
+            next_active = set()
+            for node in active:
+                for nb in neighbors[node]:
+                    if nb not in visited and np.random.random() < p_activation:
+                        next_active.add(nb)
+                        visited.add(nb)
+            active = next_active
+            if active:
+                gen_list.append(len(active))
+        sizes[av] = len(visited)
+        durations[av] = len(gen_list)
+        generations.append(gen_list)
+    return sizes, durations, generations
+
+
+avalanche_data = {}
+for g in DIAG_ORD:
+    print(f"Simulando {N_AVALANCHAS} avalanchas — {g}...")
+    s, T, gens = simulate_avalanches(adj_mean[g], p_crit, N_AVALANCHAS)
+    avalanche_data[g] = {"sizes": s, "durations": T, "generations": gens}
+    print(f"  ⟨s⟩={s.mean():.2f}  ⟨T⟩={T.mean():.2f}  s_max={s.max()}")
+
+pl_results = {}
+for g in DIAG_ORD:
+    s, T = avalanche_data[g]["sizes"], avalanche_data[g]["durations"]
+    fit_s = powerlaw.Fit(s[s > 1], discrete=True, verbose=False)
+    fit_T = powerlaw.Fit(T[T > 1], discrete=True, verbose=False)
+    pl_results[g] = {
+        "alpha_s": fit_s.power_law.alpha, "xmin_s": fit_s.power_law.xmin,
+        "alpha_T": fit_T.power_law.alpha, "xmin_T": fit_T.power_law.xmin,
+    }
+    print(f"{g}: α(s)={fit_s.power_law.alpha:.3f}  α(T)={fit_T.power_law.alpha:.3f}")
+
+============================================================
+CELL 56
+============================================================
+# --- Sección 3: percolación (submuestra estratificada, paralelo) ---
+PROPS_FINE = np.arange(0.002, 0.032, 0.002)
+PROPS_COARSE = np.arange(0.040, 0.210, 0.010)
+PROPS_PERC = np.round(np.concatenate([PROPS_FINE, PROPS_COARSE]), 3)
+print(f"Percolación: {len(crit_subset)} sujetos × {len(PROPS_PERC)} props")
+
+
+def perc_one_subject(row_dict, fc_z, props):
+    rows = []
+    for prop in props:
+        B = threshold_proportional(fc_z, prop)
+        G = nx.from_numpy_array(B)
+        comps = sorted(nx.connected_components(G), key=len, reverse=True)
+        S1 = len(comps[0]) / N_ROI if comps else 0.0
+        S2 = len(comps[1]) / N_ROI if len(comps) >= 2 else 0.0
+        chi = (S2 ** 2) / N_ROI
+        rows.append({
+            "record_id": row_dict["record_id"], "diagnosis": row_dict["diagnosis"],
+            "prop": prop, "S1": S1, "S2": S2, "chi": chi,
+        })
+    return rows
+
+
+crit_rows = [row.to_dict() for _, row in crit_subset.iterrows()]
+perc_nested = Parallel(n_jobs=CRIT_N_JOBS, verbose=3)(
+    delayed(perc_one_subject)(row, fc_z_crit[row["record_id"]], PROPS_PERC)
+    for row in crit_rows
+)
+perc_records = [r for sublist in perc_nested for r in sublist]
+perc_df = pd.DataFrame(perc_records)
+perc_df.to_csv(CRIT_OUT / "percolacion.csv", index=False)
+print(f"Registros percolación: {len(perc_df)}")
+
+perc_agg = (
+    perc_df.groupby(["diagnosis", "prop"])[["S1", "S2", "chi"]]
+    .agg(["mean", "sem"]).reset_index()
+)
+perc_agg.columns = ["diagnosis", "prop", "S1_mean", "S1_sem", "S2_mean", "S2_sem", "chi_mean", "chi_sem"]
+
+chi_peak = {}
+for g in DIAG_ORD:
+    sub = perc_agg[perc_agg.diagnosis == g]
+    idx_max = sub["chi_mean"].idxmax()
+    chi_peak[g] = sub.loc[idx_max, "prop"]
+    print(f"  {g}: prop_c = {chi_peak[g]:.3f}")

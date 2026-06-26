@@ -1,0 +1,625 @@
+\documentclass[12pt,a4paper]{article}
+
+% --- Paquetes ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{geometry}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{longtable}
+
+\geometry{
+  left=3cm,
+  right=2.5cm,
+  top=3cm,
+  bottom=3cm
+}
+
+\onehalfspacing
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  citecolor=black,
+  urlcolor=black
+}
+
+% --- Título ---
+\title{
+  \large Neurociencias Computacionales - TP Final - Posgrado \\[0.5em]
+  \LARGE BAGs, topología y criticalidad entre sujetos con Alzheimer y Demencia \\
+  
+}
+\author{
+  Ignacio Manuel Bosch \\
+  \small nachobosch5@gmail.com
+}
+\date{Junio 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+Se analiza la organización topológica de las redes cerebrales funcionales a partir de los datos de la cohorte multicéntrica latinoamericana RedLat-BrainLat, y se utilizan estos datos para extender un trabajo multimodal de la literatura\cite{bazan2026} incorporando seis métricas de topología de grafos calculadas sobre conectividad funcional en reposo (atlas AAL-116). Al conjunto mencionado con una cantidad de sujetos $n = 1245$ y diagnósticos: Control (CN), Alzheimer (AD) y Demencia (FTD), se le realizó transformación Fisher-z, $\beta$-VAE y partición 90/10 con estratificación por sexo y diagnóstico, y se entrenaron los modelos de la literatura. En el caso del modelo híbrido Ridge ($Z$ + T1w + sexo + TOPO + educación + sitio) se alcanzó un error absoluto medio de 5.06 años para el conjunto de prueba ($R^2 = 0.54$), superando la mejor configuración reportada en la Referencia sin topología (MAE = 5.17 años con XGBoost optimizado). De forma complementaria, se estudian índices de mundo pequeño y medidas de criticalidad espectral entre los grupos de diagnóstico. La diferencia de edad de cerebro (BAG, por sus siglas en inglés) derivado del modelo híbrido discrimina grupos diagnósticos y se asocia con diferencias topológicas entre sujetos BAG+ y BAG-. La enfermedad de Alzheimer exhibe un desplazamiento hacia regímenes espectralmente menos supercríticos ($\lambda_1$ menor que CN y FTD). Además, BAG+ presentó eficiencia local, eficiencia global y clustering significativamente mayores (False Discovery Rate $< 0.05$), mientras que las métricas frontoparietales de hubs no alcanzaron significación tras corrección FDR
+\end{abstract}
+
+
+
+% =============================================================================
+\section{Introducción}
+% =============================================================================
+
+La enfermedad de ALzheimer y Demencia Frontotemporal constituyen uno de los problemas de salud pública más urgentes del siglo XXI, con una carga desproporcionada sobre países de ingresos bajos y medios, donde se concentrará más del 70\% de los casos en las próximas décadas. América Latina presenta además una conjunción de factores de riesgo que incluyen menor acceso a educación, alta prevalencia de desigualdad socioeconómica y escasa representación en estudios de neuroimagen a gran escala\cite{moguilner2024}.
+
+El proyecto ReDLaT-BrainLat\cite{prado2023brainlat} provee la primera cohorte latinoamericana multicéntrica con datos de fMRI en reposo, morfometría estructural T1w y evaluaciones neuropsicológicas estandarizadas para controles cognitivamente normales (CN), pacientes con AD, FTD, Esclerosis Múltiple y Parkinson. Se descartan para este trabajo los subconjuntos de Eslerosis Múltiple y Parkinson debido a la falta de datos estructurales y funcionales necesarios para el mismo. El conjunto restante de datos (CN, AD y FTD) ofrece una oportunidad única para caracterizar la reorganización topológica de las redes cerebrales funcionales\cite{coronel2025} en contextos culturales y sociodemográficos.
+
+El concepto de brecha de edad cerebral (Brain Age Gap o BAG por sus siglas en inglés) captura la diferencia entre la edad biológica estimada a partir de neuroimagen y la edad cronológica de un sujeto. Un BAG positivo, es un cerebro que aparentantemente es más viejo de lo que es cronologicamente, y se ha asociado con mayor riesgo de deterioro cognitivo, peor salud cardiovascular y menor reserva cognitiva\cite{moguilner2024}. La referencia en la literatura\cite{bazan2026}, tesis previa en el mismo proyecto, empleó un autoencoder variacional $\beta$-VAE\cite{higgins2022} para comprimir las matrices de conectividad funcional en representaciones latentes, que combinadas con características
+morfométricas del VBM T1w y variables sociodemográficas permitieron predecir la edad cerebral con un error absoluto medio mínimo de 5.17 años en conjunto de prueba (XGBoost, optimizado con Optuna).
+
+El presente trabajo extiende ese análisis en cuatro direcciones. Primero, replica el pipeline multimodal sobre el subconjunto oficial estandarizando con Fisher-z y se evalúa los modelos Ridge, SVR,
+XGBoost y MLP reutilizando los hiperparámetros finales \emph{post-Optuna} de la referencia (en el caso del MLP fue una incorporación de este trabajo para observar si presenta mejora en los resultados). Segundo, incorpora seis métricas topológicas de grafos (TOPO) al vector de características, obteniendo modelos híbridos por sus datos de entrenamiento y testeo. De estos modelos entrandos es que se logró obtener con Ridge un MAE de 5.06 años para testeo. Tercero, examinar asociaciones entre BAG y topología en sujetos
+BAG+ vs BAG-. Cuarto, complementar con análisis de mundo pequeño mediante caracterizaciones de cada diagnostico y estudiar criticalidad espectral mediante pruebas.
+
+% \subsection{Objetivo}
+
+% Determinar si los cerebros con BAG positivo presentan reducción en eficiencia local y centralidad de hubs frontoparietales, mediante análisis de grafos sobre matrices de conectividad funcional en reposo, en la cohorte ReDLaT/BrainLat, controlando por edad,
+% educación y sitio de adquisición.
+
+% =============================================================================
+\section{Métodos}
+% =============================================================================
+
+\subsection{Datos}
+
+La muestra elegible comprende 1327 sujetos adultos (CN = 555, AD = 468, FTD = 304) distribuidos en nueve sitios de adquisición: Miller (400), Matallana (135), Bruno (125), Slachevsky (93), Takada (93), Lopera (89), Behrens (60), Resende (19) y Avila (9). Las edades medias por grupo son: AD = $70.0 \pm 8.5$ años, FTD = $65.3 \pm 8.3$ años, CN = $63.3 \pm 11.4$ años. Los datos incluyen series temporales de fMRI en reposo preprocesadas y parcializadas con el atlas AAL-116\cite{tzourio2002} (matrices de correlación de Pearson 116 $\times$ 116 precomputadas), morfometría voxel a voxel de T1w (VBM, probabilidad media de materia gris por ROI del atlas AAL) y variables sociodemográficas y clínicas.
+
+Se realizó un análisis exploratorio de datos que mostraron efectos de sitio significativos sobre la edad ($H = 312.4$, $p < 0.001$) y la educación ($H = 287.1$, $p < 0.001$). Las diferencias en distribución de diagnósticos entre sitios justifican el uso de validación cruzada con salida de sitio (LOSO-CV) y la incorporación del sitio como covariable para los modelos estadísticos\cite{combat}.
+
+\subsection{Conectividad funcional}
+
+Las matrices de correlación (Pearson) fueron transformadas con la función de Fisher ($r \to z$) para normalizar la distribución y estabilizar la varianza. Para el análisis topológico general se
+aplicó un umbral fijo de Fisher-z = 0.20, generando grafos binarios no dirigidos para cada sujeto por cada diagnóstico. La densidad media resultante varía considerablemente entre sujetos y sitios (rango 0.11--0.53), lo que peude deberse a efectos de sitio en la magnitud de la conectividad funcional.
+
+Para el análisis de criticalidad se utilizó un umbral proporcional del 10\% de las conexiones más fuertes, de tal manera, que cada grafo
+binario posea densidad equivalente entre sujetos. El análisis topológico en general, de mundo pequeño y el análisis espectral de criticalidad usa umbral fijo Fisher-z = 0.20 para normalización por densidad.
+
+\subsection{Métricas de grafos}
+\label{sec:topo}
+
+Para cada sujeto se construyó un grafo binario no dirigido a partir de la matriz Fisher-z (umbral = 0.20) y se calcularon seis métricas de teoría de grafos con la librería \texttt{bct} (Brain Connectivity Toolbox para Python)\cite{rubinov2010}. Estas seis variables son las que conforman el bloque TOPO, incorporado al modelo de edad cerebral.
+
+\begin{itemize}
+  \item Eficiencia local ($E_{\text{loc}}$): promedio, sobre todos los nodos, de la eficiencia
+        de los subgrafos de vecindad. En cada nodo $i$, la eficiencia local es la inversa de la
+        longitud media de los caminos más cortos entre los vecinos de $i$. Valores altos indican
+        capacidad de intercambio de información en vecindarios locales.
+  \item Eficiencia global ($E_{\text{glob}}$): inversa de la distancia geodésica media entre
+        todos los pares de nodos del grafo. Resume la integración global de la red, cuanto mayor
+        es $E_{\text{glob}}$, más cortos son los caminos típicos entre regiones distantes.
+  \item Coeficiente de clustering ($C$): promedio nodal de la fracción de triángulos cerrados
+        entre los vecinos de cada nodo. Mide segregación local, es decir, cuánto tienden los nodos a
+        formar grupos interconectados.
+  \item Eficiencia local frontoparietal ($E_{\text{loc}}^{\text{FP}}$): mismo cálculo que
+        $E_{\text{loc}}$, restringido a los 22 nodos frontoparietales del atlas AAL-116\cite{tzourio2002}.
+  \item Betweenness frontoparietal ($B^{\text{FP}}$): promedio de la centralidad de
+        intermediación normalizada en la subred frontoparietal. Cuantifica cuántos caminos
+        más cortos del grafo pasan por nodos de esa subred. Valores altos indican posibles
+        hubs de integración.
+  \item Grado medio frontoparietal ($k^{\text{FP}}$): número promedio de conexiones por nodo
+        dentro de la subred frontoparietal, indicando densidad de conectividad local en esa
+        región funcional.
+\end{itemize}
+
+Las métricas globales ($E_{\text{loc}}$, $E_{\text{glob}}$, $C$) caracterizan la organización de toda la red. Las tres frontoparietales focalizan la red asociativa frontoparietal, relevante para el objetivo central del estudio.
+
+\subsection{Predicción y BAG}
+
+Se replicó y extendió el pipeline de la referencia\cite{bazan2026} sobre la cohorte mencionada en Datos: ($n = 1245$, CN/AD/FTD con FC, T1w y metadatos).
+
+\begin{enumerate}
+  \item Matrices de Conectividad Funcional (6670 conexiones, triángulo superior AAL-116\cite{tzourio2002}) con transformación Fisher-z, $\beta$-VAE\cite{higgins2022} entrenado sobre el 90\% \emph{trainval} $\rightarrow$ embeddings $Z \in \mathbb{R}^{64}$.
+  \item Fusión multimodal: embedding del espacio latente de VAE ($Z$) + 116 ROIs T1w (VBM) + sexo + TOPO (6 métricas) + educación (\texttt{cog\_ed}) + variables indicadoras de sitio.
+  \item Regresores: XGBoost, Ridge, SVR (HP \emph{post-Optuna} de la Referencia) y MLP.
+  \item Evaluación principal: holdout 90/10 estratificado (sexo $\times$ diagnóstico), igual que la Referencia.
+  \item BAG: Ridge híbrido entrenado solo en CN (\emph{trainval}), corrección de sesgo con LOSO-CV
+        por sitio sobre CN, $\text{BAG} = \text{BAG}_{\text{raw}} - (\hat{\beta}_0 + \hat{\beta}_1 \cdot \text{edad})$.
+\end{enumerate}
+
+La Referencia reporta MAE mínimo de 5.17 años en test con $Z$ + VBM + educación + sitio cuando
+XGBoost se optimiza con Optuna \emph{para cada configuración} de características en la Referencia.
+Aquí se reutilizan los mismos HP finales del pipeline base (VAE, XGB, Ridge, SVR), aplicados de forma uniforme a todas las variantes, incluidas las nuevas con TOPO, sin repetir esa búsqueda por configuración.
+
+\subsection{Mundo pequeño}
+
+El análisis de mundo pequeño se aplicó sobre la misma cohorte ($n = 1245$). La conectividad funcional se cargó con transformación Fisher-z, se reconstruyó la matriz simétrica 116$\times$116 y se binarizó al umbral fijo Fisher-z $= 0.20$.
+
+Debido al costo computacional asociado a este tipo de trabajo, se utilizó una submuestra exploratoria de 10 sujetos por diagnóstico ($n = 30$, CN, AD, FTD), seleccionados mediante muestreo estratificado por
+sitio (\texttt{site}, \texttt{random\_state = 42}). Además, los sujetos con grafo desconectado al umbral
+fueron excluidos.
+
+Para cada sujeto se calcularon el coeficiente de clustering $C$, la longitud de camino característica $L$ y las eficiencias local y global\cite{rubinov2010} (BCT). Como referencias topológicas se generaron $N_{\text{ref}} = 20$ realizaciones por condición: (i) Watts-Strogatz rewiring que preserva la secuencia de grado\cite{watts1998} (\texttt{bct.randmio\_und}), (ii) Erdös-Renyi con igual número de nodos y densidad. Solo se promediaron los grafos conexos. Todo el procesamiento se paralelizó por sujeto (\texttt{joblib}, 2 núcleos) para mejorar el tiempo de computo.
+
+Los índices son $\sigma = (C/C_{\text{ref}})/(L/L_{\text{ref}})$ (referencia WS o ER) y $\omega = (L_{\text{ref}}/L) - (C/C_{\text{latt}})$ (Telesford et al., 2011), con grafo tipo lattice (\texttt{bct.latmio\_und}) para $C_{\text{latt}}$. Las comparaciones entre grupos diagnósticos se evaluaron con Kruskal-Wallis y post-hoc de Mann-Whitney con corrección FDR-BH (False Discovery Rate es una corrección como Bonferroni pero que ajusta la significacia teniendo en cuenta falsos positivos).
+
+\subsection{Criticalidad}
+
+El análisis de criticalidad se aplicó sobre la misma cohorte que en todo el proyecto ($n = 1245$). La matriz FC se procesó con transformación Fisher-z y matrices simétricas 116$\times$116. Cada grafo
+se binarizó conservando el 10\% superior de pesos (umbral proporcional por sujeto).
+
+\paragraph{Autovalor máximo ($\lambda_1$).} Se calculó $\lambda_1$ como el mayor autovalor de la
+matriz de adyacencia simétrica de cada sujeto\cite{larremore2011}. En modelos de contagio simple, el punto crítico
+teórico es $\lambda_1 = 1$, valores mayores indican régimen supercrítico respecto de ese
+criterio. Se obtuvo además $\lambda_1^{\text{norm}} = \lambda_1 / \lambda_1^{\text{ER}}$,
+donde $\lambda_1^{\text{ER}}$ proviene de 100 grafos Erd\H{o}s-R\'enyi con la misma densidad
+que la matriz promedio de cada grupo. $\lambda_1$ y la sensibilidad al umbral se calcularon
+sobre la cohorte completa.
+
+\paragraph{Avalanchas neuronales.} Sobre las matrices promedio grupales (promedio de FC Fisher-z
+por diagnóstico, luego binarización proporcional) se simularon 50000 avalanchas con probabilidad fija $p = 1/\lambda_1^{\text{CN}}$ (matriz promedio CN)\cite{beggs2003}. Se registró el tamaño $s$ de cada avalancha y se ajustó $P(s)$ a una ley de potencias (MLE de Clauset\cite{clauset2009}, \texttt{powerlaw}).
+
+\paragraph{Percolación.} Por costo computacional, se evaluó una submuestra de 10 sujetos por
+diagnóstico ($n = 30$), estratificada por centro (\texttt{site}, \texttt{random\_state = 42}). Para cada sujeto se reconstruyeron grafos en proporciones 0.2\%--3.0\% (paso 0.2\%) y 4.0\%--20.0\% (paso 1.0\%). Se calcularon $S_1$, $S_2$ y $\chi = S_2^2 / 116$, el umbral crítico individual $T_c$ corresponde al máximo de $\chi$. El procesamiento se paralelizó por sujeto (\texttt{joblib}, 2 núcleos).
+
+\paragraph{Razón de ramificación ($\sigma_{\text{br}}$).} A partir de las generaciones de cada avalancha se estimó $\sigma_{\text{br}} = \Sigma n_{t+1} / \Sigma n_t$ (ratio agregado que incluye la generación final con cero descendientes)\cite{beggs2003}, con intervalos de confianza por bootstrap (1000 réplicas).
+
+Las comparaciones entre grupos usaron Kruskal-Wallis y Mann-Whitney con corrección FDR-BH, tasa de falsos descubrimientos, donde al p-valor se le hace una corrección por comparaciones múltiples usando el método Benjamini–Hochberg.
+
+% =============================================================================
+\section{Resultados}
+% =============================================================================
+
+\subsection{Descripción de la muestra}
+
+La tabla~\ref{tab:demograficos} resume las características demográficas por grupo diagnóstico. Los grupos difieren significativamente en edad (Kruskal-Wallis, $p < 0.001$), siendo los pacientes con AD los de mayor edad promedio ($70.0 \pm 8.5$ años). La distribución de sexo y nivel educativo también varía entre sitios, lo que se controló incorporando el sitio como covariable en todos los modelos\cite{combat}.
+
+\begin{table}[H]
+  \centering
+  \caption{Características demográficas por grupo diagnóstico.}
+  \label{tab:demograficos}
+  \begin{tabular}{lcccc}
+    \toprule
+    & CN & AD & FTD & Total \\
+    \midrule
+    N & 555 & 468 & 304 & 1327 \\
+    Edad (media $\pm$ DE) & $63.3 \pm 11.4$ & $70.0 \pm 8.5$ & $65.3 \pm 8.3$ & $65.9 \pm 10.5$ \\
+    Sitios con datos & 9 & 9 & 9 & 9 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Métricas topológicas}
+
+Las seis métricas definidas en la sección~\ref{sec:topo} ($E_{\text{loc}}$, $E_{\text{glob}}$,
+$C$, $E_{\text{loc}}^{\text{FP}}$, $B^{\text{FP}}$, $k^{\text{FP}}$) muestran patrones diferenciables entre los tres grupos diagnósticos (tabla~\ref{tab:grafos}). El grupo AD presenta reducciones en eficiencia local, eficiencia global y coeficiente de clustering respecto al CN\cite{coronel2025}. Las métricas frontoparietales muestran la misma dirección: menor grado y menor betweenness en la red frontoparietal del AD.
+
+\begin{table}[H]
+  \centering
+  \caption{Métricas de grafos por grupo (media $\pm$ DE). Umbral Fisher-z = 0.20.}
+  \label{tab:grafos}
+  \begin{tabular}{lccc}
+    \toprule
+    Métrica & CN & AD & FTD \\
+    \midrule
+    $E_{\text{loc}}$ & $0.861 \pm 0.057$ & $0.849 \pm 0.049$ & $0.858 \pm 0.058$ \\
+    $E_{\text{glob}}$ & $0.763 \pm$ -- & $0.744 \pm$ -- & $0.755 \pm$ -- \\
+    Clustering & $0.726 \pm$ -- & $0.694 \pm$ -- & $0.714 \pm$ -- \\
+    $E_{\text{loc}}^{\text{FP}}$ & $0.861 \pm$ -- & $0.847 \pm$ -- & $0.861 \pm$ -- \\
+    $k^{\text{FP}}$ & $0.599 \pm 0.186$ & $0.548 \pm 0.170$ & $0.575 \pm 0.191$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figs_tpf/02_graph_metrics_by_diagnosis.png}
+  
+  \caption{Distribuciones de métricas de grafos por grupo diagnóstico. El grupo AD posee un desplazamiento hacia valores menores en todas las métricas.}
+  \label{fig:grafos_violins}
+\end{figure}
+
+\subsection{Predicción de edad cerebral}
+
+Todos los modelos se evaluaron en el conjunto de prueba con separación holdout (10\%, estratificado por sexo $\times$ diagnóstico, con $n_{\text{test}} = 125$ en la configuración base, o $n_{\text{test}} = 91$ cuando se requiere educación y sitio completos). Se reutilizan los hiperparámetros de la referencia\cite{bazan2026} (VAE, XGB, Ridge, SVR), comunes a todas las configuraciones evaluadas.
+
+\subsubsection{Pipeline de referencia}
+
+La tabla~\ref{tab:ref_tesis} contrasta la mejor configuración reportada en la referencia ($Z$ + T1w + educación + sitio, XGBoost optimizado con Optuna) con los valores réplicados usando el mismo XGBoost usando los hiperparámetros del pipeline base. La réplica reproduce el orden de magnitud esperado (MAE $\approx 5.5$--$5.8$ años).
+
+\begin{table}[H]
+  \centering
+  \caption{Referencia vs Réplica.}
+  \label{tab:ref_tesis}
+  \begin{tabular}{lcccc}
+    \toprule
+    Configuración & $n_{\text{test}}$ & MAE (años) & $R^2$ & $r$ \\
+    \midrule
+    Referencia: $Z$ + T1w + educ. + sitio  & 91 & \textbf{5.17} & 0.523 & 0.725 \\
+    Este trabajo: $Z$ + T1w + educ. + sitio  & 91 & 5.54 & 0.473 & 0.693 \\
+    Este trabajo: $Z$ + T1w + sexo  & 125 & 5.88 & 0.407 & 0.640 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+En la configuración base ($Z$ + T1w + sexo), Ridge (MAE = 5.79), SVR (MAE = 5.54) y XGBoost
+(MAE = 5.88) son comparables entre sí. La validación cruzada 5-fold sobre \emph{trainval}
+arroja MAE = $6.42 \pm 0.27$ años para XGBoost, coherente con la ligera sobre-estimación respecto del holdout.
+
+\subsubsection{Ablación de características}
+
+La tabla~\ref{tab:ablacion} resume ablaciones sobre el mismo holdout. El T1w estructural solo ya alcanza MAE = 5.85 años, $Z$ solo aporta el peor rendimiento (MAE = 7.11). La fusión de $Z$ + T1w con MAE = 5.79 confirma complementariedad entre conectividad comprimida y morfometría. Agregar diagnóstico no mejora (MAE = 5.74), replicando la referencia\cite{bazan2026}.
+
+\begin{table}[H]
+  \centering
+  \caption{Ablación de características.}
+  \label{tab:ablacion}
+  \begin{tabular}{lcccc}
+    \toprule
+    Configuración & Dims & MAE & $R^2$ & $r$ \\
+    \midrule
+    T1w solo & 116 & 5.85 & 0.385 & 0.623 \\
+    T1w + sexo & 117 & 5.89 & 0.377 & 0.616 \\
+    $Z$ solo & 64 & 7.11 & 0.102 & 0.337 \\
+    $Z$ + T1w & 180 & 5.79 & 0.417 & 0.650 \\
+    $Z$ + T1w + sexo & 181 & 5.88 & 0.407 & 0.640 \\
+    $Z$ + T1w + sexo + diagnóstico & 182 & 5.74 & 0.419 & 0.653 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Métricas topológicas}
+
+Se evaluó si las seis métricas de grafos\cite{rubinov2010} aportan señal además de $Z$, T1w y sexo (tabla~\ref{tab:topo_abl}). TOPO sola es un predictor débil (MAE = 8.21, $R^2 < 0$). En cambio, $Z$ + T1w + sexo + TOPO alcanza MAE = 5.76 años ($R^2 = 0.412$), prácticamente equivalente al baseline sin TOPO (5.88), lo que sugiere redundancia parcial pero no penalización al incluir topología en el vector multimodal.
+
+\begin{table}[H]
+  \centering
+  \caption{Ablación con métricas topológicas.}
+  \label{tab:topo_abl}
+  \begin{tabular}{lccc}
+    \toprule
+    Configuración & MAE & $R^2$ & $r$ \\
+    \midrule
+    TOPO  & 8.21 & $-0.22$ & 0.098 \\
+    T1w + TOPO + sexo & 5.77 & 0.397 & 0.633 \\
+    $Z$ + TOPO + sexo & 7.23 & 0.091 & 0.322 \\
+    $Z$ + T1w + sexo + TOPO & 5.76 & 0.412 & 0.646 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Modelo híbrido completo}
+
+La configuración $Z$ + T1w + sexo + TOPO + educación + sitio posee la mejor performance del estudio (tabla~\ref{tab:modelo_full}). Ridge alcanzó el mejor resultado de MAE con 5.06 años, $R^2 = 0.536$, $r = 0.736$, el cual mejora con respecto a la mejor cifra de la referencia\cite{bazan2026} (sin TOPO) con MAE de 5.17 años. SVR en la misma configuración alcanza el segundo mejor resultado de MAE de 5.13 años y $R^2 = 0.547$, y XGBoost con MAE de 5.44 años.
+
+\begin{table}[H]
+  \centering
+  \caption{Modelo híbrido en test ($n_{\text{test}} = 91$, 197 características).}
+  \label{tab:modelo_full}
+  \begin{tabular}{lccc}
+    \toprule
+    Regresor & MAE  & $R^2$ & $r$ \\
+    \midrule
+    \textbf{Ridge (mejor global)} & \textbf{5.06} & 0.536 & 0.736 \\
+    SVR & 5.13 & 0.547 & 0.742 \\
+    XGBoost (HP post-Optuna, únicos) & 5.44 & 0.488 & 0.705 \\
+    Referencia (XGB + Optuna/config., sin TOPO) & 5.17 & 0.523 & 0.725 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Con educación pero sin sitio, Ridge alcanzó un valor de MAE con 5.15 años ($R^2 = 0.505$). La validación 5-fold del híbrido $Z$ + T1w + sexo + TOPO da un MAE = $6.43 \pm 0.22$ años (XGBoost).
+
+Se realizó una red neuronal del tipo perceptro multicapa (\texttt{tf.keras}, tres capas densas) cuyo resultado en test fue de MAE = 8.3 años, $R^2 < 0$, probablemente por sobreajuste con $n_{\text{train}} \approx 842$ y alta dimensionalidad.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figs_tpf/08_brain_age_prediction_CN.png}
+  
+  \caption{Predicción de edad cerebral y BAG con el Ridge híbrido completo.}
+  \label{fig:bag_pred}
+\end{figure}
+
+\subsection{Diferencias topológicas entre BAG+ y BAG-}
+
+El BAG se derivó del Ridge híbrido ($Z$ + T1w + sexo + TOPO + educación + sitio) entrenado en
+337 CN del \emph{trainval}, con corrección de sesgo LOSO por sitio\cite{combat}. La cohorte analizable comprende $n = 933$ sujetos con datos completos. Tras corrección, el BAG medio por diagnóstico fue: CN = $1.70 \pm 6.01$, AD = $11.58 \pm 6.80$, FTD = $13.93 \pm 6.36$ años, reflejando envejecimiento cerebral acelerado en AD y FTD\cite{moguilner2024}. Los grupos BAG+ y BAG- se definieron por $\text{BAG} > 0$ y $\text{BAG} \leq 0$.
+
+\subsubsection{Comparación}
+
+Los sujetos BAG+ presentaron eficiencia local, eficiencia global y clustering mayores que BAG- (tabla~\ref{tab:bag_groups}), con significación FDR en las tres métricas globales ($p_{\text{FDR}} = 0.021$--$0.039$, Mann-Whitney U). Las métricas frontoparietales no alcanzaron significación tras corrección FDR ($p_{\text{FDR}} > 0.12$).
+
+\begin{table}[H]
+  \centering
+  \caption{BAG+ vs BAG- (Ridge híbrido, Mann-Whitney U, FDR-BH).}
+  \label{tab:bag_groups}
+  \begin{tabular}{lccc}
+    \toprule
+    Métrica & Media BAG+ & Media BAG- & $p_{\text{FDR}}$ \\
+    \midrule
+    $E_{\text{loc}}$ & 0.868 & 0.856 & 0.021 \\
+    $E_{\text{glob}}$ & 0.773 & 0.756 & 0.039 \\
+    Clustering & 0.741 & 0.718 & 0.021 \\
+    $E_{\text{loc}}^{\text{FP}}$ & 0.866 & 0.856 & 0.039 \\
+    Betweenness FP & 0.0048 & 0.0051 & 0.126 \\
+    Grado FP & 0.612 & 0.588 & 0.126 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+La dirección positiva en eficiencias y clustering es coherente con el artefacto de umbral fijo (Fisher-z = 0.20), mayor conectividad de reposo $\rightarrow$ grafos más densos $\rightarrow$ métricas globales más altas, independientemente del signo biológico del envejecimiento.
+
+\subsubsection{Regresión continua y correlación con MMSE}
+
+El MMSE (\textit{Mini-Mental State Examination}) es un puntaje clínico de cognición global
+cuyo rango va de 0 a 30. Se analizó su relación con la topología de grafos para evaluar si la organización de la red funcional en reposo acompaña diferencias cognitivas entre sujetos, controlando edad y educación.
+
+En regresión múltiple (TOPO $\sim$ BAG + edad + educación + sexo + sitio + diagnóstico), solo
+el grado frontoparietal mostró asociación marginal con BAG ($\beta = -0.0019$, $p = 0.037$,
+FDR = 0.22). Las correlaciones parciales de Spearman entre topología y MMSE (controlando edad
+y educación, $n = 916$) fueron positivas pero bajas: grado FP ($r = 0.104$, $p_{\text{FDR}} = 0.010$),
+eficiencia global ($r = 0.086$, $p_{\text{FDR}} = 0.019$) e eficiencia local ($r = 0.082$,
+$p_{\text{FDR}} = 0.019$).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{figs_tpf/08_topology_BAG_groups.png}
+  
+  \caption{Métricas topológicas en grupos BAG+ y BAG- definidos por el Ridge híbrido.}
+  \label{fig:bag_topo}
+\end{figure}
+
+\subsection{Small World}
+
+\subsubsection{Watts Strogatz y Erdös Renyi}
+
+Los tres grupos diagnósticos presentan organización de mundo pequeño robusta respecto a ambas referencias topológicas (tabla~\ref{tab:small_world}): todos los $\sigma_{\text{WS}}$ superan 1 (rango 1.09--1.22) y los $\sigma_{\text{ER}}$ también (rango 1.31--1.51), lo que indica clustering elevado con longitudes de camino comparables o menores que las de grafos WS\cite{watts1998} (preservan grado) o ER (misma densidad).
+
+\begin{table}[H]
+  \centering
+  \caption{Índices de mundo pequeño por grupo (media $\pm$ DE, submuestra estratificada por
+  centro, $n = 30$, 10 por diagnóstico, cohorte \texttt{data-iipsi}, $N_{\text{ref}} = 20$).}
+  \label{tab:small_world}
+  \begin{tabular}{lcccc}
+    \toprule
+    Grupo & $\sigma_{\text{WS}}$ & $\omega_{\text{WS}}$ & $\sigma_{\text{ER}}$ & $\omega_{\text{ER}}$ \\
+    \midrule
+    CN & $1.187 \pm 0.174$ & $0.077 \pm 0.055$ & $1.467 \pm 0.226$ & $0.076 \pm 0.053$ \\
+    AD & $1.221 \pm 0.181$ & $0.086 \pm 0.055$ & $1.510 \pm 0.219$ & $0.085 \pm 0.055$ \\
+    FTD & $1.092 \pm 0.134$ & $0.028 \pm 0.036$ & $1.305 \pm 0.179$ & $0.027 \pm 0.036$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+El índice $\omega$ (ideal de mundo pequeño en $\omega = 0$) fue mayor en CN y AD ($\omega_{\text{WS}} \approx 0.08$) que en FTD ($\omega_{\text{WS}} \approx 0.03$). Para $\sigma_{\text{WS}}$ y $\sigma_{\text{ER}}$ no hubo diferencias globales entre grupos (Kruskal-Wallis, $p > 0.10$). En cambio, $\omega_{\text{WS}}$ y $\omega_{\text{ER}}$ sí difieron entre grupos (Kruskal-Wallis, $p \approx 0.03$): en post-hoc con FDR-BH, FTD presentó $\omega$ significativamente menor que CN y AD ($p_{\text{FDR}} < 0.05$), consistente con un desplazamiento de FTD hacia topologías más aleatorias (menor $\omega$ implica que $L$ se acerca más a $L_{\text{ref}}$ en relación con $C$). Con $n = 10$ por grupo, la potencia para
+$\sigma$ permanece limitada.
+
+\subsubsection{Comparación entre referencias WS y ER}
+
+Los índices $\sigma_{\text{WS}}$ y $\sigma_{\text{ER}}$ difieren en magnitud global ($\sigma_{\text{ER}} \approx 1.43$ vs.\ $\sigma_{\text{WS}} \approx 1.17$ en promedio). Esta diferencia puede deberse a que WS conserva la secuencia de grado y constituye una referencia más restrictiva y ER no preserva el grado y genera redes más aleatorias, frente a las cuales las redes cerebrales exhiben mayor $\sigma$. La comparación con WS es metodológicamente más conservadora para cuantificar organización de mundo pequeño más allá de la heterogeneidad de grado\cite{watts1998}.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figs_tpf/08_sw_by_diagnosis.png}
+  \caption{Índices de mundo pequeño con referencias WS y ER por grupo diagnóstico
+  ($n = 30$). La organización de mundo pequeño ($\sigma > 1$) es robusta en ambas referencias y en todos los grupos.}
+  \label{fig:small_world}
+\end{figure}
+
+\subsection{Criticalidad}
+
+\subsubsection{Autovalor $\lambda_1$}
+
+Con umbral proporcional del 10\%, los valores individuales de $\lambda_1$ los sujetos de la cohorte fueron: CN = $20.96 \pm 3.12$ ($n = 526$), AD = $20.09 \pm 2.61$ ($n = 422$), FTD = $20.98 \pm 2.98$ ($n = 297$). Todos superan ampliamente $\lambda_1 = 1$ bajo este criterio de binarización\cite{larremore2011}. La normalización respecto de grafos ER de igual densidad arrojó $\lambda_1^{\text{norm}}$ = $1.69 \pm 0.25$ CN, $1.62 \pm 0.21$ AD y $1.69 \pm 0.24$ FTD. En las matrices promedio grupales, $\lambda_1^{\text{ER}} \approx 12.43$ para los tres grupos, as razones grupales fueron 1.64 (CN), 1.45 (AD) y 1.57 (FTD).
+
+Con el test de Kruskal-Wallis se detectó diferencias globales en $\lambda_1$ ($H = 21.35$, $p = 2.3 \times 10^{-5}$). En post-hoc con FDR-BH, AD tuvo $\lambda_1$ menor que CN ($p_{\text{FDR}} = 0.00014$,
+$r = -0.15$) y menor que FTD ($p_{\text{FDR}} = 0.00014$, $r = 0.17$). CN y FTD no difieron ($p_{\text{FDR}} = 0.81$). El mismo patrón se observó para $\lambda_1^{\text{norm}}$.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{figs_tpf/08_crit_lambda1.png}
+  \caption{Autovalor máximo y rango dinámico por grupo (proporción 10\%).}
+  \label{fig:lambda1}
+\end{figure}
+
+\subsubsection{Rango dinámico}
+
+Para cada diagnóstico se promedió la conectividad de todos los sujetos y se obtuvo una matriz de red representativa del grupo. Sobre esas matrices promedio se midió el rango dinámico $\Delta$\cite{larremore2011}, esto es, cuánto debe variar la intensidad de un estímulo externo para que la red pase de una respuesta baja (10\% del máximo) a una alta (90\% del máximo), expresado en decibelios. Los valores fueron CN = 16.05 dB, AD = 17.46 dB y FTD = 16.25 dB, AD presentó el mayor $\Delta$. Pero, las mismas matrices promedio, AD tuvo el menor autovalor máximo $\lambda_1$ (18.04 frente a 20.33 en CN y 19.56 en FTD), es decir, una red promedio espectralmente menos propensa a amplificar actividad de forma global.
+
+\subsubsection{Avalanchas neuronales}
+
+Con $p = 1/\lambda_1^{\text{CN}} \approx 0.049$ (fija para los tres grupos), las simulaciones sobre matrices promedio mostraron tamaños medios de $\langle s \rangle$ de 2.97 (CN), 2.70 (AD) y
+2.91 (FTD). Los exponentes del ajuste de ley de potencias\cite{clauset2009} fueron $\alpha(s)$ = 2.01 (CN), 2.12 (AD) y 2.02 (FTD), $\alpha(T)$ = 2.39 (CN), 2.51 (AD) y 2.40 (FTD). Los tres $\alpha(s)$ superan 1.5, que es el valor de referencia de campo medio\cite{beggs2003}.
+
+La razón de ramificación $\sigma_{\text{br}}$ (estimador agregado) fue: CN = 0.663 (IC95\% [0.659, 0.667]), AD = 0.630 (IC95\% [0.626, 0.634]), FTD = 0.657 (IC95\% [0.653, 0.661]). Los tres valores son menores que 1 ($\sigma_{\text{br}} < 1$), lo que indica un régimen subcrítico bajo la probabilidad de transmisión elegida\cite{beggs2003}. El valor teórico $k_{\text{medio}} \times p$ fue $\approx 0.57$ en los tres grupos.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figs_tpf/08_crit_avalanchas.png}
+  \caption{Avalanchas sobre matrices promedio ($N = 50\,000$, $p = 1/\lambda_1^{\text{CN}}$).}
+  \label{fig:avalanchas}
+\end{figure}
+
+\subsubsection{Percolación}
+
+En la submuestra estratificada ($n = 30$, 10 por diagnóstico), el pico medio de $\chi$ por grupo ocurrió en proporciones 1.8\% (CN), 2.8\% (AD) y 3.0\% (FTD). Los umbrales críticos individuales ($T_c$ al máximo de $\chi$) promediaron 2.7\% (CN), 2.1\% (AD) y 4.2\% (FTD), con alta variabilidad intra-grupo (DE 1.2\%--3.5\%). No hubo diferencias significativas entre grupos en $S_{2,\text{peak}}$, $\chi_{\text{peak}}$ ni $T_c$ (Kruskal-Wallis, $p > 0.24$ para todas las métricas).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figs_tpf/08_crit_percolacion.png}
+  \caption{Percolación ($n = 30$).}
+  \label{fig:percolacion}
+\end{figure}
+
+\subsubsection{Robustez de $\lambda_1$ al umbral}
+
+Repitiendo el cálculo de $\lambda_1$ en proporciones del 2\% al 20\%, AD mantuvo valores menores que CN y FTD en todo el rango evaluado\cite{larremore2011}. Los resultados extremos fueron de: a 2\%, medias 7.89 (CN), 7.34 (AD), 7.93 (FTD) y a 20\%, 33.70 (CN), 32.68 (AD), 33.82 (FTD). Los grupos CN y FTD fueron muy similares en cada punto, y la separación AD y CN/FTD se mantuvo sin cruzarse.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{figs_tpf/08_crit_sensibilidad.png}
+  \caption{Sensibilidad de $\lambda_1$ al umbral proporcional ($n = 1245$).}
+  \label{fig:sensitivity}
+\end{figure}
+
+% =============================================================================
+\section{Discusión}
+% =============================================================================
+
+\subsection{Predicción}
+
+La réplica de la referencia\cite{bazan2026} confirma que el pipeline de la misma es sólido cuando se evalúa en holdout con Fisher-z: MAE $\approx 5.5$ y $5.9$ años reutilizando hiperparámetros optimizados con Optuna, en línea con el mínimo reportado de 5.17 años. Luego al agregar la extensión con la topología (TOPO) no degrada el rendimiento, más bien, combinada con educación y sitio, permite que un Ridge regularizado alcance un valor de MAE de 5.06 años, mejorando así el valor de referencia sin topología, con $R^2 = 0.54$.
+
+Este resultado podría sugerir que (i) la regularización L2 de Ridge es adecuada para vectores de $\sim$200 dimensiones y/o en cohortes multicéntricas, y (ii) las métricas de grafos\cite{rubinov2010} aportan información complementaria a $Z$ y T1w cuando se integran con covariables sociodemográficas.
+
+La red neuronal con arquitectura de MLP no obtuvo mejores valores, lo que refuerza la preferencia por modelos lineales o de kernels en este régimen de datos ($n \approx 800$--$1100$ en entrenamiento, alta dimensionalidad). Sin embargo, no se realizó por cuestiones de tiempo un proceso de optimización para incorporar a este trabajo.
+
+XGBoost con los mismos hiperparametros optimizados con Optuna, quedó por detrás de Ridge y SVR en la configuración completa, posiblemente porque la referencia\cite{bazan2026} afinó XGBoost por cada bloque de características y aquí no se repitió esa búsqueda para las variantes con TOPO.
+
+\subsection{Envejecimiento cerebral y topología}
+
+Los resultados confirman parcialmente la hipótesis central: el BAG derivado del Ridge híbrido discrimina diagnósticos (BAG medio $\approx 1.7$ años en CN vs $\approx 12$ en AD/FTD\cite{moguilner2024}) y se asocia con diferencias topológicas entre BAG+ y BAG-. Sin embargo, la dirección de las métricas globales (eficiencia, clustering) en BAG+ es positiva, no negativa como se podría esperar de un cerebro más envejecido, que sus metricas de topología sean menor eficiencia y clustering menores.
+
+La dirección positiva de la asociación entre BAG y eficiencia global/local merece una interpretación dedicada. La hiperconectividad en reposo observada en AD y FTD y envejecimiento patológico\cite{coronel2025}, atribuida a pérdida de la especificidad sináptica o a compensación funcional, produjo grafos más densos a umbral fijo, lo que artificialmente eleva métricas globales. Este artefacto metodológico sería en parte corregible con un umbral proporcional también para las métricas topológicas generales, sin
+embargo, la consistencia de los resultados con la referencia podría sugerir que la señal observada mezcla componentes genuinos y artefactuales.
+
+
+\subsection{Small World}
+
+La demostración de organización de mundo pequeño\cite{watts1998} se realizó en todos los grupos, con referencias con Watts-Strogatz y Erdös-Renyi, y se confirma que las redes cerebrales funcionales en reposo de esta cohorte latinoamericana presentan small-worldness en la arquitectura topológica. El índice $\sigma_{\text{WS}}$ es más conservador porque preserva la heterogeneidad de grado, que $\sigma_{\text{WS}} > 1$ en todos los grupos indica que la organización de mundo pequeño no es un mero artefacto del perfil de grado.
+
+A diferencia de $\sigma$, el índice $\omega$ discrimina grupos en esta submuestra: FTD exhibe valores significativamente menores que CN y AD, sugiriendo un desplazamiento hacia topologías más aleatorias en FTD. Este hallazgo debe interpretarse con cuidado por el tamaño muestral ($n = 30$, estratificado por centro) y el número reducido de realizaciones de referencia ($N_{\text{ref}} = 20$), pero es coherente con la tendencia observada en AD respecto de $\omega_{\text{WS}}$ en análisis previos con otra submuestra\cite{coronel2025}.
+
+\subsection{Criticalidad}
+
+El resultado más consistente del análisis de criticalidad es que AD presenta $\lambda_1$ menor que
+CN y FTD en la cohorte completa ($p_{\text{FDR}} < 0.001$ en ambas comparaciones)\cite{larremore2011}, mientras
+CN y FTD no difieren ($p_{\text{FDR}} = 0.81$). La sensibilidad al umbral proporcional (2\% a 20\%)
+repite el mismo orden: AD por debajo de CN y FTD en cada punto evaluado.
+
+En matrices promedio, AD también tiene el menor $\lambda_1$ (18.04) y el mayor rango dinámico
+$\Delta$ (17.46 dB). 
+
+Las simulaciones de avalanchas\cite{beggs2003} con $p$ fija al valor derivado de CN produjeron $\alpha(s) > 2$ y $\sigma_{\text{br}} < 1$ en los tres grupos (régimen subcrítico bajo esa $p$). AD mostró el menor $\langle s \rangle$ (2.70) y el mayor $\alpha(s)$ (2.12).
+
+La percolación, evaluada en una submuestra de $n = 30$, no mostró diferencias significativas
+entre grupos en $S_{2,\text{peak}}$, $\chi_{\text{peak}}$ ni $T_c$. Los picos medios de $\chi$
+cayeron entre 1.8\% y 3.0\% de densidad proporcional.
+
+Estos resultados describen diferencias espectrales y dinámicas entre AD y los otros grupos bajo
+el pipeline, su interpretación clínica requiere validación con diseños longitudinales y mayor potencia en percolación.
+
+% =============================================================================
+\section{Conclusiones}
+% =============================================================================
+
+Este trabajo se buscó caracterizar la cohorte ReDLaT/BrainLat\cite{prado2023brainlat} desde cuatro perspectivas: predicción
+multimodal de edad cerebral, asociaciones entre BAG y topología, organización de mundo pequeño y criticalidad espectral y dinámica.
+
+Los principales resultados son:
+
+\begin{enumerate}
+
+  \item El pipeline multimodal de la referencia\cite{bazan2026} se replicó con MAE
+  de entre [5.54,5.88] años en test con hiperparámetros optimizados. El modelo híbrido Ridge con las variables de $Z$ + T1w + sexo + TOPO +  educación + sitio alcanzó un MAE = 5.06 años ($R^2 = 0.536$), por debajo del mínimo reportado en la referencia.
+
+  \item Las métricas topológicas\cite{rubinov2010} son pobres predictores, por sí solas predicen mal la edad (MAE $\approx 8.2$ años), pero integradas al vector multimodal y con Ridge, contribuyen al mejor resultado global.
+
+  \item El BAG del Ridge híbrido separa grupos diagnósticos y muestra diferencias topológicas
+  significativas entre BAG+ y BAG- en eficiencia y clustering (FDR $< 0.05$), con interpretación
+  a considerar por efecto de umbral fijo.
+
+  \item Las redes cerebrales funcionales presentan organización de mundo pequeño robusta\cite{watts1998} en
+  todos los grupos diagnósticos y con ambas referencias topológicas (WS y ER). En la submuestra
+  estratificada ($n = 30$), FTD muestra $\omega$ significativamente menor que CN y AD, indicando
+  mayor desplazamiento hacia topologías aleatorias.
+
+  \item En criticalidad AD tiene $\lambda_1$\cite{larremore2011} significativamente menor que CN y FTD, CN y FTD no difieren. La separación se mantiene entre  2\% y 20\% de densidad proporcional. Avalanchas\cite{beggs2003} y $\sigma_{\text{br}}$ indican régimen subcrítico ($\sigma_{\text{br}} < 1$, $\alpha > 2$) con la $p$ fijada desde CN. Percolación ($n = 30$) no mostró diferencias significativas entre grupos.
+
+\end{enumerate}
+
+% Limitaciones del estudio incluyen: (i) el modelo híbrido completo requiere educación y sitio
+% no missing ($n_{\text{test}} = 91$), reduciendo la muestra evaluable; (ii) no se repitió Optuna por
+% configuración para las variantes con TOPO (a diferencia de la búsqueda por configuración en la
+% Referencia), aunque
+% sí se usaron HP ya obtenidos con Optuna en el pipeline base; (iii) submuestras reducidas para
+% mundo pequeño ($n = 30$, $N_{\text{ref}} = 20$) y percolación ($n = 30$); (iv) efectos de sitio
+% no completamente controlados a umbral fijo en métricas de grafos; (v) diseño transversal. Trabajo futuro:
+% optimización por bloque de características, validación externa por sitio y análisis longitudinal
+% del BAG híbrido.
+
+% =============================================================================
+% Bibliografía
+% =============================================================================
+\newpage
+\begin{thebibliography}{99}
+
+\bibitem{bazan2026}
+Bazán, N. M. (2026). \textit{Estimación de la edad cerebral mediante autoencoders
+variacionales y aprendizaje multimodal a partir de conectividad funcional, datos
+estructurales y variables sociodemográficas}. Tesis de Licenciatura en Ciencias de
+la Computación, Facultad de Matemática, Astronomía, Física y Computación,
+Universidad Nacional de Córdoba. Directores: D. Barsotti, G. Della Bella, P. Barttfeld.
+
+\bibitem{prado2023brainlat}
+Prado, P., et al. (2023). The BrainLat project, a multimodal neuroimaging dataset of
+neurodegeneration from underrepresented backgrounds. \textit{Scientific Data}, 10(1), 889.
+
+\bibitem{coronel2025}
+Coronel-Oliveros, C., et al. (2025). Topological reorganization of functional brain networks
+in Latin American dementia cohorts. \textit{Nature Communications}.
+
+\bibitem{moguilner2024}
+Moguilner, S., et al. (2024). Multimodal brain age gap estimation in Latin America.
+\textit{Nature Medicine}.
+
+\bibitem{tzourio2002}
+Tzourio-Mazoyer, N., et al. (2002). Automated anatomical labeling of activations in SPM
+using a macroscopic anatomical parcellation of the MNI MRI single-subject brain.
+\textit{NeuroImage}, 15(1), 273--289.
+
+\bibitem{rubinov2010}
+Rubinov, M., \& Sporns, O. (2010). Complex network measures of brain connectivity: Uses and
+interpretations. \textit{NeuroImage}, 52(3), 1059--1069.
+
+\bibitem{watts1998}
+Watts, D. J., \& Strogatz, S. H. (1998). Collective dynamics of ``small-world'' networks.
+\textit{Nature}, 393(6684), 440--442.
+
+\bibitem{larremore2011}
+Larremore, D. B., Shew, W. L., \& Restrepo, J. G. (2011). Predicting criticality and dynamic
+range in complex networks: Effects of topology. \textit{Physical Review Letters}, 106(5), 058101.
+
+\bibitem{beggs2003}
+Beggs, J. M., \& Plenz, D. (2003). Neuronal avalanches in neocortical circuits.
+\textit{Journal of Neuroscience}, 23(35), 11167--11177.
+
+\bibitem{clauset2009}
+Clauset, A., Shalizi, C. R., \& Newman, M. E. J. (2009). Power-law distributions in empirical
+data. \textit{SIAM Review}, 51(4), 661--703.
+
+\bibitem{higgins2022}
+Higgins, I. et al. (2017). beta-VAE: Learning basic visual concepts with a constrained
+variational framework. \textit{ICLR 2017}.
+
+\bibitem{combat}
+Johnson, W. E., Li, C., \& Rabinovic, A. (2007). Adjusting batch effects in microarray
+expression data using empirical Bayes methods. \textit{Biostatistics}, 8(1), 118--127.
+
+\end{thebibliography}
+
+\end{document}
