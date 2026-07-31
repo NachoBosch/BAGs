@@ -4,8 +4,8 @@ Pipeline COMA-only (equivalente nb09 §1–3b, sin ReDLaT).
 1. Inventario FC + demografía
 2. TOPO (umbral 0.20)
 3. β-VAE entrenado en FC de coma
-4. Ridge(Z+TOPO → edad) en coma + BAG/MAE
-5. CSV en outputs/coma/
+4. Ridge(Z+TOPO+sex → edad) en coma + BAG/MAE
+5. Tablas (CSV/JSON) en COMA/; VAE/embeddings en outputs/coma/
 """
 
 from __future__ import annotations
@@ -43,6 +43,8 @@ from src.vae_train import load_vae_from_dir, train_vae_final  # noqa: E402
 FC_ROOT = Path("/home/usuario/disco1/proyectos/2024-autoencoders/databases/fc/inflamacion")
 DEMO_XLSX = ROOT / "demographics.xlsx"
 IDMAP_PATH = ROOT / "id_map_coma.csv"
+# tablas para graficar → carpeta COMA/; modelos/artefactos pesados → outputs/
+TABLE_DIR = Path(__file__).resolve().parent
 OUT = ROOT / "outputs" / "coma"
 VAE_DIR = OUT / "vae_coma"
 
@@ -51,6 +53,7 @@ FISHER_Z = True
 THRESHOLD_TOPO = 0.20
 RIDGE_ALPHA = 267.7
 REUSE_VAE = True
+USE_SEX = True
 
 # mismos hiperparámetros que nb09; batch_size bajado por n≈42
 VAE_HP = dict(
@@ -72,8 +75,20 @@ VAE_HP = dict(
 SUB_RE = re.compile(r"(ANOX|TC|CONTROLES)\d{3}", re.I)
 
 
-def build_z_topo(Z: np.ndarray, topo: np.ndarray) -> np.ndarray:
-    return np.hstack([np.asarray(Z, np.float32), np.asarray(topo, np.float32)])
+def encode_sex(sex: np.ndarray) -> np.ndarray:
+    """M=1, F=0; NaN → 0.5 (neutro)."""
+    out = np.full(len(sex), 0.5, dtype=np.float32)
+    s = pd.Series(sex).astype(str).str.upper().str.strip()
+    out[s.isin(["M", "MALE", "H"]).to_numpy()] = 1.0
+    out[s.isin(["F", "FEMALE"]).to_numpy()] = 0.0
+    return out
+
+
+def build_features(Z: np.ndarray, topo: np.ndarray, sex: np.ndarray | None = None) -> np.ndarray:
+    parts = [np.asarray(Z, np.float32), np.asarray(topo, np.float32)]
+    if sex is not None:
+        parts.append(encode_sex(sex).reshape(-1, 1))
+    return np.hstack(parts)
 
 
 def mat_sub_code(path) -> str | None:
@@ -156,16 +171,17 @@ def step_cohort() -> pd.DataFrame:
 
     cohort = list_inflamacion_mats(FC_ROOT, group_map=DEFAULT_GROUP_MAP)
     cohort = link_demographics(cohort)
-    cohort.to_csv(OUT / "cohort_coma_with_demographics.csv", index=False)
+    cohort.to_csv(TABLE_DIR / "cohort_coma_with_demographics.csv", index=False)
     print("cohorte:", len(cohort))
     print(cohort.groupby("diagnosis").size())
     print("con age:", int(cohort["age"].notna().sum()))
+    print("con sex:", int(cohort["sex"].notna().sum()))
     return cohort
 
 
 def step_topo(cohort: pd.DataFrame) -> pd.DataFrame:
     topo = compute_topo_table(cohort, threshold=THRESHOLD_TOPO, apply_fisher_z=FISHER_Z)
-    topo.to_csv(OUT / "graph_metrics_coma.csv", index=False)
+    topo.to_csv(TABLE_DIR / "graph_metrics_coma.csv", index=False)
     print("TOPO:", topo.shape)
     return topo
 
@@ -196,10 +212,14 @@ def step_ridge_bag(
     Z: np.ndarray,
     ids: list[str],
 ) -> pd.DataFrame:
-    ages = cohort.set_index("record_id").loc[ids, "age"].to_numpy(float)
-    dx = cohort.set_index("record_id").loc[ids, "diagnosis"].values
+    meta = cohort.set_index("record_id").loc[ids]
+    ages = meta["age"].to_numpy(float)
+    dx = meta["diagnosis"].values
+    sex = meta["sex"].values
     topo_mat = topo.set_index("record_id").loc[ids, TOPO_COLUMNS].to_numpy(np.float32)
-    X = build_z_topo(Z, topo_mat)
+    X = build_features(Z, topo_mat, sex=sex if USE_SEX else None)
+    feat_desc = "Z+TOPO+sex" if USE_SEX else "Z+TOPO"
+    print(f"features: {feat_desc}  X={X.shape}")
 
     mask = np.isfinite(ages)
     if mask.sum() < 3:
@@ -259,9 +279,12 @@ def step_ridge_bag(
     ]
     bag_df = bag_df.join(extra, on="record_id")
 
-    bag_df.to_csv(OUT / "bag_coma_trained_on_coma.csv", index=False)
+    bag_path = TABLE_DIR / "bag_coma_trained_on_coma.csv"
+    bag_df.to_csv(bag_path, index=False)
 
     metrics = {
+        "features": feat_desc,
+        "use_sex": bool(USE_SEX),
         "n_with_age": int(mask.sum()),
         "n_total": int(len(ids)),
         "mae_loo": float(mae_cv),
@@ -274,19 +297,21 @@ def step_ridge_bag(
         "vae": {k: (list(v) if isinstance(v, list) else v) for k, v in VAE_HP.items()},
         "seed": SEED,
     }
-    with open(OUT / "metrics_coma_bag.json", "w") as f:
+    with open(TABLE_DIR / "metrics_coma_bag.json", "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print("guardado:", OUT / "bag_coma_trained_on_coma.csv")
+    print("guardado:", bag_path)
     print(bag_df.groupby("diagnosis")[["age", "predicted_age", "BAG", "abs_err_loo"]]
           .mean().round(2))
     return bag_df
 
 
 def main():
+    TABLE_DIR.mkdir(parents=True, exist_ok=True)
     OUT.mkdir(parents=True, exist_ok=True)
     VAE_DIR.mkdir(parents=True, exist_ok=True)
     set_global_seed(SEED)
+    print("TABLE_DIR:", TABLE_DIR)
     print("OUT:", OUT)
 
     cohort = step_cohort()

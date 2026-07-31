@@ -1,4 +1,4 @@
-"""Exploración COMA: solo CTRL vs TRAU (outputs/nb09_coma). Solo gráficos en pantalla."""
+"""Exploración COMA: solo CTRL vs TRAU (tablas en COMA/). Solo gráficos en pantalla."""
 
 from pathlib import Path
 
@@ -8,8 +8,7 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-ROOT = Path(__file__).resolve().parents[1]
-NB09 = ROOT / "outputs" / "nb09_coma"
+DATA = Path(__file__).resolve().parent
 
 DIAG_ORDER = ["CTRL", "TRAU"]
 PALETTE = {"CTRL": "#0072B2", "ANOX": "#D55E00", "TRAU": "#009E73"}
@@ -19,16 +18,13 @@ sns.set_theme(style="whitegrid", context="notebook")
 
 
 def load_coma():
-    cohort = pd.read_csv(NB09 / "cohort_coma_with_demographics.csv")
-    bag = pd.read_csv(NB09 / "bag_coma_with_age.csv")
-    topo = pd.read_csv(NB09 / "graph_metrics_coma.csv")
-    pred = pd.read_csv(NB09 / "predicted_age_all_cohorts.csv")
-    pred = pred[pred["cohort"] == "coma"].copy()
+    cohort = pd.read_csv(DATA / "cohort_coma_with_demographics.csv")
+    bag = pd.read_csv(DATA / "bag_coma_trained_on_coma.csv")
+    topo = pd.read_csv(DATA / "graph_metrics_coma.csv")
 
     cohort = cohort[cohort["diagnosis"].isin(KEEP)].copy()
     bag = bag[bag["diagnosis"].isin(KEEP)].copy()
     topo = topo[topo["diagnosis"].isin(KEEP)].copy()
-    pred = pred[pred["diagnosis"].isin(KEEP)].copy()
 
     cohort["sex"] = cohort["sex"].replace({"H": "M", "F": "F"})
     if "binary_outcome" in cohort.columns:
@@ -38,7 +34,7 @@ def load_coma():
     if "deceased" in cohort.columns:
         cohort["deceased"] = pd.to_numeric(cohort["deceased"], errors="coerce")
 
-    return cohort, bag, topo, pred
+    return cohort, bag, topo
 
 
 def _order(df, col="diagnosis"):
@@ -136,6 +132,12 @@ def plot_clinical(cohort):
 
 def plot_bag_mae(bag):
     order = _order(bag)
+    if "predicted_age_loo" in bag.columns and bag["predicted_age_loo"].notna().any():
+        bag = bag.copy()
+        bag["predicted_age"] = bag["predicted_age_loo"].fillna(bag["predicted_age"])
+        bag["BAG"] = bag.get("BAG_loo", bag["BAG"]).fillna(bag["BAG"])
+        if "abs_err_loo" in bag.columns:
+            bag["abs_err"] = bag["abs_err_loo"].fillna(bag["abs_err"])
     bag = bag.dropna(subset=["age", "predicted_age"]).copy()
     if bag.empty:
         print("sin BAG con edad")
@@ -217,10 +219,8 @@ def plot_topo(topo):
 
 
 def plot_bag_vs_clinical(bag, cohort):
-    m = bag.merge(
-        cohort[["record_id", "gcs", "binary_outcome", "sex"]],
-        on="record_id", how="left",
-    )
+    need = [c for c in ["gcs", "binary_outcome", "sex"] if c not in bag.columns]
+    m = bag.merge(cohort[["record_id"] + need], on="record_id", how="left") if need else bag.copy()
     order = _order(m)
     has_gcs = m["gcs"].notna().any()
     has_out = m["binary_outcome"].notna().any()
@@ -292,10 +292,10 @@ def plot_summary_table(cohort, bag, topo):
 
 
 def main():
-    print("datos:", NB09)
+    print("datos:", DATA)
     print("grupos:", DIAG_ORDER)
-    cohort, bag, topo, pred = load_coma()
-    print(f"cohort={len(cohort)}  bag={len(bag)}  topo={len(topo)}  pred={len(pred)}")
+    cohort, bag, topo = load_coma()
+    print(f"cohort={len(cohort)}  bag={len(bag)}  topo={len(topo)}")
 
     plot_cohort_overview(cohort)
     plot_age_distributions(cohort)
