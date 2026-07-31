@@ -1,0 +1,33 @@
+{
+  "n_with_age": 42,
+  "n_total": 42,
+  "mae_loo": 17.001300630115328,
+  "rmse_loo": 18.787228456486144,
+  "r2_loo": 0.010022884721673453,
+  "mae_loo_by_dx": {
+    "ANOX": 14.43536122639974,
+    "CTRL": 16.575056778757197,
+    "TRAU": 19.22930690220424
+  },
+  "mae_fit_all": 13.44255002339681,
+  "ridge_alpha": 267.7,
+  "threshold_topo": 0.2,
+  "vae": {
+    "hidden_dims": [
+      512
+    ],
+    "latent_dim": 64,
+    "beta_target": 0.056663247229966504,
+    "warmup_ep": 73,
+    "l2_reg": 2.897389671945472e-07,
+    "lr": 0.001892443497356961,
+    "recon_kind": "mae",
+    "drop_rate": 0.036861053246000725,
+    "activation": "elu",
+    "norm_kind": "layernorm",
+    "batch_size": 8,
+    "clipnorm": 1.0,
+    "epochs": 96
+  },
+  "seed": 42
+}
