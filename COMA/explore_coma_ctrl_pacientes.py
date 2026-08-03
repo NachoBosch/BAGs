@@ -1,4 +1,4 @@
-"""Exploración COMA: solo CTRL vs TRAU (tablas en COMA/). Solo gráficos en pantalla."""
+"""Exploración COMA: CTRL vs pacientes (tablas *_ctrl_pacientes en COMA/). Solo gráficos."""
 
 from pathlib import Path
 
@@ -10,17 +10,18 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 DATA = Path(__file__).resolve().parent
 
-DIAG_ORDER = ["CTRL", "TRAU"]
-PALETTE = {"CTRL": "#0072B2", "ANOX": "#D55E00", "TRAU": "#009E73"}
+DIAG_ORDER = ["CTRL", "pacientes"]
+PALETTE = {"CTRL": "#0072B2", "pacientes": "#D55E00"}
 KEEP = set(DIAG_ORDER)
+TITLE = "COMA CTRL vs pacientes"
 
 sns.set_theme(style="whitegrid", context="notebook")
 
 
 def load_coma():
-    cohort = pd.read_csv(DATA / "cohort_coma_with_demographics.csv")
-    bag = pd.read_csv(DATA / "bag_coma_trained_on_coma.csv")
-    topo = pd.read_csv(DATA / "graph_metrics_coma.csv")
+    cohort = pd.read_csv(DATA / "cohort_coma_ctrl_pacientes.csv")
+    bag = pd.read_csv(DATA / "bag_coma_ctrl_pacientes.csv")
+    topo = pd.read_csv(DATA / "graph_metrics_coma_ctrl_pacientes.csv")
 
     cohort = cohort[cohort["diagnosis"].isin(KEEP)].copy()
     bag = bag[bag["diagnosis"].isin(KEEP)].copy()
@@ -48,14 +49,14 @@ def plot_cohort_overview(cohort):
 
     counts = cohort["diagnosis"].value_counts().reindex(order)
     axes[0].bar(counts.index, counts.values, color=[PALETTE[d] for d in counts.index])
-    axes[0].set_title("n por diagnóstico")
+    axes[0].set_title("n por grupo")
     axes[0].set_ylabel("sujetos")
     for i, v in enumerate(counts.values):
         axes[0].text(i, v + 0.2, str(int(v)), ha="center")
 
     sex_ct = pd.crosstab(cohort["diagnosis"], cohort["sex"]).reindex(order)
     sex_ct.plot(kind="bar", ax=axes[1], rot=0, color=["#e41a1c", "#377eb8"])
-    axes[1].set_title("sexo × diagnóstico")
+    axes[1].set_title("sexo × grupo")
     axes[1].set_xlabel("")
 
     if cohort["age"].notna().any():
@@ -65,11 +66,14 @@ def plot_cohort_overview(cohort):
     else:
         axes[2].set_visible(False)
 
-    fig.suptitle("COMA CTRL vs TRAU — composición", y=1.02)
+    fig.suptitle(f"{TITLE} — composición", y=1.02)
     plt.tight_layout()
     plt.show()
 
     print(cohort.groupby("diagnosis")["age"].describe().round(2).reindex(order))
+    if "diagnosis_orig" in cohort.columns:
+        print("\norig × grupo:")
+        print(pd.crosstab(cohort["diagnosis"], cohort["diagnosis_orig"]))
 
 
 def plot_age_distributions(cohort):
@@ -95,7 +99,7 @@ def plot_age_distributions(cohort):
                  palette=PALETTE, multiple="dodge", shrink=0.85,
                  bins=10, ax=axes[1], edgecolor="white", linewidth=0.5)
     axes[1].set_title("histograma edad (barras lado a lado)")
-    fig.suptitle("COMA CTRL vs TRAU — distribuciones de edad", y=1.02)
+    fig.suptitle(f"{TITLE} — distribuciones de edad", y=1.02)
     plt.tight_layout()
     plt.show()
 
@@ -123,7 +127,7 @@ def plot_clinical(cohort):
         ct.plot(kind="bar", ax=axes[i], rot=0, color=["#999999", "#4daf4a"])
         axes[i].set_title("outcome binario (0 malo / 1 bueno)")
         axes[i].set_xlabel("")
-    fig.suptitle("COMA CTRL vs TRAU — variables clínicas", y=1.02)
+    fig.suptitle(f"{TITLE} — variables clínicas", y=1.02)
     plt.tight_layout()
     plt.show()
 
@@ -176,7 +180,7 @@ def plot_bag_mae(bag):
     axes[2].set_title("|error| (años)")
     axes[2].set_ylabel("abs_err")
 
-    fig.suptitle("COMA CTRL vs TRAU — brain age / BAG / error", y=1.02)
+    fig.suptitle(f"{TITLE} — brain age / BAG / error", y=1.02)
     plt.tight_layout()
     plt.show()
 
@@ -184,7 +188,7 @@ def plot_bag_mae(bag):
     sns.scatterplot(data=bag, x="age", y="BAG", hue="diagnosis",
                     hue_order=order, palette=PALETTE, ax=ax)
     ax.axhline(0, color="k", ls="--", lw=0.8)
-    ax.set_title("COMA CTRL vs TRAU — BAG vs edad cronológica")
+    ax.set_title(f"{TITLE} — BAG vs edad cronológica")
     plt.tight_layout()
     plt.show()
 
@@ -207,7 +211,7 @@ def plot_topo(topo):
         ax.set_xlabel("")
     for ax in axes[n:]:
         ax.set_visible(False)
-    fig.suptitle("COMA CTRL vs TRAU — métricas topológicas (TOPO)", y=1.01)
+    fig.suptitle(f"{TITLE} — métricas topológicas (TOPO)", y=1.01)
     plt.tight_layout()
     plt.show()
 
@@ -240,7 +244,7 @@ def plot_bag_vs_clinical(bag, cohort):
     else:
         axes[1].set_visible(False)
 
-    fig.suptitle("COMA CTRL vs TRAU — BAG vs clínica", y=1.02)
+    fig.suptitle(f"{TITLE} — BAG vs clínica", y=1.02)
     plt.tight_layout()
     plt.show()
 
@@ -265,7 +269,7 @@ def plot_summary_table(cohort, bag, topo):
         }
         rows.append(row)
     summary = pd.DataFrame(rows).set_index("diagnosis").round(2)
-    print("\n=== Resumen COMA CTRL vs TRAU ===")
+    print(f"\n=== Resumen {TITLE} ===")
     print(summary.to_string())
 
     fig, ax = plt.subplots(figsize=(8, 2.8))
@@ -280,7 +284,7 @@ def plot_summary_table(cohort, bag, topo):
     tbl.auto_set_font_size(False)
     tbl.set_fontsize(9)
     tbl.scale(1.15, 1.4)
-    ax.set_title("COMA CTRL vs TRAU — tabla resumen", pad=12)
+    ax.set_title(f"{TITLE} — tabla resumen", pad=12)
     plt.tight_layout()
     plt.show()
 

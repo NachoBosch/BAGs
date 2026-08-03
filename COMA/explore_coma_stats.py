@@ -56,8 +56,6 @@ def plot_cohort_overview(cohort):
     if cohort["age"].notna().any():
         sns.boxplot(data=cohort, x="diagnosis", y="age", order=order,
                     palette=PALETTE, ax=axes[2])
-        sns.stripplot(data=cohort, x="diagnosis", y="age", order=order,
-                      color="k", size=4, alpha=0.5, ax=axes[2])
         axes[2].set_title("edad cronológica")
     else:
         axes[2].set_visible(False)
@@ -167,8 +165,6 @@ def plot_bag_mae(bag):
     axes[0].set_title(f"pred vs real  MAE={mae_all:.2f}")
 
     sns.boxplot(data=bag, x="diagnosis", y="BAG", order=order, palette=PALETTE, ax=axes[1])
-    sns.stripplot(data=bag, x="diagnosis", y="BAG", order=order,
-                  color="k", size=4, alpha=0.45, ax=axes[1])
     axes[1].axhline(0, color="k", ls="--", lw=0.8)
     axes[1].set_title("BAG = pred − age")
 
@@ -192,19 +188,17 @@ def plot_bag_mae(bag):
 def plot_topo(topo):
     order = _order(topo)
     metrics = [
-        "local_efficiency", "global_efficiency", "clustering_coeff",
-        "degree_mean", "fp_local_efficiency", "fp_degree",
+        "local_efficiency", "global_efficiency",
+        "clustering_coeff", "degree_mean",
     ]
     metrics = [m for m in metrics if m in topo.columns]
     n = len(metrics)
-    ncols = 3
+    ncols = 2
     nrows = int(np.ceil(n / ncols))
-    fig, axes = plt.subplots(nrows, ncols, figsize=(12, 3.6 * nrows))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(10, 3.6 * nrows))
     axes = np.atleast_1d(axes).ravel()
     for ax, m in zip(axes, metrics):
         sns.boxplot(data=topo, x="diagnosis", y=m, order=order, palette=PALETTE, ax=ax)
-        sns.stripplot(data=topo, x="diagnosis", y=m, order=order,
-                      color="k", size=3, alpha=0.4, ax=ax)
         ax.set_title(m)
         ax.set_xlabel("")
     for ax in axes[n:]:
