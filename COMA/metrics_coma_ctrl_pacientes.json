@@ -1,0 +1,40 @@
+{
+  "contrast": "CTRL_vs_pacientes",
+  "patient_sources": [
+    "ANOX",
+    "TRAU"
+  ],
+  "patient_label": "pacientes",
+  "features": "Z+TOPO+sex",
+  "use_sex": true,
+  "n_with_age": 42,
+  "n_total": 42,
+  "mae_loo": 16.850319271995907,
+  "rmse_loo": 18.659796842900096,
+  "r2_loo": 0.023407140538078464,
+  "mae_loo_by_dx": {
+    "CTRL": 16.438921878212376,
+    "pacientes": 17.19016929294752
+  },
+  "mae_fit_all": 13.285587674095517,
+  "ridge_alpha": 267.7,
+  "threshold_topo": 0.2,
+  "vae": {
+    "hidden_dims": [
+      512
+    ],
+    "latent_dim": 64,
+    "beta_target": 0.056663247229966504,
+    "warmup_ep": 73,
+    "l2_reg": 2.897389671945472e-07,
+    "lr": 0.001892443497356961,
+    "recon_kind": "mae",
+    "drop_rate": 0.036861053246000725,
+    "activation": "elu",
+    "norm_kind": "layernorm",
+    "batch_size": 8,
+    "clipnorm": 1.0,
+    "epochs": 96
+  },
+  "seed": 42
+}
