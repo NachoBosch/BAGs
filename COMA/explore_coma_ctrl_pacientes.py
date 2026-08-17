@@ -1,4 +1,4 @@
-"""Exploración COMA: CTRL vs pacientes (tablas *_ctrl_pacientes en COMA/). Solo gráficos."""
+"""Exploración COMA: CTRL vs pacientes (tablas *_ctrl_pacientes en COMA/). Guarda figs."""
 
 from pathlib import Path
 
@@ -9,6 +9,7 @@ import seaborn as sns
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 DATA = Path(__file__).resolve().parent
+FIG_DIR = DATA / "figs_ctrl_pacientes"
 
 DIAG_ORDER = ["CTRL", "pacientes"]
 PALETTE = {"CTRL": "#0072B2", "pacientes": "#D55E00"}
@@ -16,6 +17,14 @@ KEEP = set(DIAG_ORDER)
 TITLE = "COMA CTRL vs pacientes"
 
 sns.set_theme(style="whitegrid", context="notebook")
+
+
+def save_fig(name: str) -> None:
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    path = FIG_DIR / f"{name}.png"
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print("fig:", path)
+    plt.show()
 
 
 def load_coma():
@@ -68,7 +77,7 @@ def plot_cohort_overview(cohort):
 
     fig.suptitle(f"{TITLE} — composición", y=1.02)
     plt.tight_layout()
-    plt.show()
+    save_fig("01_composicion")
 
     print(cohort.groupby("diagnosis")["age"].describe().round(2).reindex(order))
     if "diagnosis_orig" in cohort.columns:
@@ -101,7 +110,7 @@ def plot_age_distributions(cohort):
     axes[1].set_title("histograma edad (barras lado a lado)")
     fig.suptitle(f"{TITLE} — distribuciones de edad", y=1.02)
     plt.tight_layout()
-    plt.show()
+    save_fig("02_distribuciones_edad")
 
 
 def plot_clinical(cohort):
@@ -129,7 +138,7 @@ def plot_clinical(cohort):
         axes[i].set_xlabel("")
     fig.suptitle(f"{TITLE} — variables clínicas", y=1.02)
     plt.tight_layout()
-    plt.show()
+    save_fig("03_clinica")
 
 
 def plot_bag_mae(bag):
@@ -182,7 +191,7 @@ def plot_bag_mae(bag):
 
     fig.suptitle(f"{TITLE} — brain age / BAG / error", y=1.02)
     plt.tight_layout()
-    plt.show()
+    save_fig("04_bag_mae")
 
     fig, ax = plt.subplots(figsize=(6, 4))
     sns.scatterplot(data=bag, x="age", y="BAG", hue="diagnosis",
@@ -190,7 +199,7 @@ def plot_bag_mae(bag):
     ax.axhline(0, color="k", ls="--", lw=0.8)
     ax.set_title(f"{TITLE} — BAG vs edad cronológica")
     plt.tight_layout()
-    plt.show()
+    save_fig("05_bag_vs_edad")
 
 
 def plot_topo(topo):
@@ -213,7 +222,7 @@ def plot_topo(topo):
         ax.set_visible(False)
     fig.suptitle(f"{TITLE} — métricas topológicas (TOPO)", y=1.01)
     plt.tight_layout()
-    plt.show()
+    save_fig("06_topo")
 
 
 def plot_bag_vs_clinical(bag, cohort):
@@ -246,7 +255,7 @@ def plot_bag_vs_clinical(bag, cohort):
 
     fig.suptitle(f"{TITLE} — BAG vs clínica", y=1.02)
     plt.tight_layout()
-    plt.show()
+    save_fig("07_bag_vs_clinica")
 
 
 def plot_summary_table(cohort, bag, topo):
@@ -286,11 +295,13 @@ def plot_summary_table(cohort, bag, topo):
     tbl.scale(1.15, 1.4)
     ax.set_title(f"{TITLE} — tabla resumen", pad=12)
     plt.tight_layout()
-    plt.show()
+    save_fig("08_resumen")
 
 
 def main():
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
     print("datos:", DATA)
+    print("figs:", FIG_DIR)
     print("grupos:", DIAG_ORDER)
     cohort, bag, topo = load_coma()
     print(f"cohort={len(cohort)}  bag={len(bag)}  topo={len(topo)}")

@@ -7,3 +7,6 @@ tensorflow
 openpyxl
 bctpy
 networkx
+torch
+torch-geometric
+shap
