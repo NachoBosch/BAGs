@@ -14,6 +14,7 @@ Qué no coincide 1:1 con el paper
 - O-info (opcional): sin BOLD no se estima Ω desde series. Se usa copula gaussiana
   sobre la propia matriz de correlación: I({i,j}; resto) vía precisión.
 - n≈42: el split 80/20 + 5-fold es estadísticamente frágil; el script avisa.
+- Contraste: CTRL vs pacientes (ANOX+TRAU unidos). diagnosis_orig conserva ANOX/TRAU.
 - Paso 6: no hay contaminación, Gini, carga de enfermedad ni país.
   El GBR opcional usa diagnóstico, sexo, GCS, outcome y etiología.
 
@@ -70,6 +71,8 @@ EDGE_THRESH = 0.0  # 0 = grafo completo (salvo diagonal)
 GRID_LR = (1e-3, 5e-4, 1e-4)
 GRID_EPOCHS = (80, 150)
 PATIENCE = 25
+PATIENT_LABEL = "pacientes"
+PATIENT_SOURCES = {"ANOX", "TRAU"}
 
 SUB_RE = re.compile(r"(ANOX|TC|CONTROLES)\d{3}", re.I)
 
@@ -160,6 +163,14 @@ def link_demographics(cohort: pd.DataFrame) -> pd.DataFrame:
     part_pat = cohort.loc[~is_ctrl].merge(demo_pat[meta_cols], on="patient", how="left")
     part_ctl = cohort.loc[is_ctrl].merge(demo_ctl[meta_cols], on="patient", how="left")
     return pd.concat([part_pat, part_ctl], ignore_index=True).sort_values("record_id").reset_index(drop=True)
+
+
+def merge_patients(cohort: pd.DataFrame) -> pd.DataFrame:
+    """ANOX + TRAU → pacientes; conserva diagnosis_orig."""
+    out = cohort.copy()
+    out["diagnosis_orig"] = out["diagnosis"]
+    out.loc[out["diagnosis"].isin(PATIENT_SOURCES), "diagnosis"] = PATIENT_LABEL
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -275,43 +286,44 @@ def matrices_to_data_list(X: np.ndarray, ages: np.ndarray, ids: list[str]):
 
 
 # ---------------------------------------------------------------------------
-# Paso 3: interpolación de matrices (solo train)
+# Paso 3: interpolación de matrices (solo train) — DESACTIVADO
+# Sobreajustaba (más sintéticas que sujetos reales). Se deja comentado.
 # ---------------------------------------------------------------------------
-
-def augment_age_gaps(X: np.ndarray, ages: np.ndarray, ids: list[str]):
-    """Rellena años enteros faltantes: M_t = (1-α) M1 + α M2."""
-    ages = np.asarray(ages, dtype=float)
-    years = np.round(ages).astype(int)
-    ymin, ymax = int(years.min()), int(years.max())
-    have = set(years.tolist())
-    missing = [y for y in range(ymin, ymax + 1) if y not in have]
-    if not missing:
-        print("Paso 3: sin huecos de edad entera; no se interpola.")
-        return X, ages, ids, 0
-
-    Xs, ys, new_ids = [X], [ages], list(ids)
-    n_syn = 0
-    for t in missing:
-        lo = np.where(ages < t)[0]
-        hi = np.where(ages > t)[0]
-        if lo.size == 0 or hi.size == 0:
-            continue
-        i1 = lo[np.argmin(np.abs(ages[lo] - t))]
-        i2 = hi[np.argmin(np.abs(ages[hi] - t))]
-        a1, a2 = ages[i1], ages[i2]
-        if abs(a2 - a1) < 1e-6:
-            continue
-        alpha = (t - a1) / (a2 - a1)
-        m = (1.0 - alpha) * X[i1] + alpha * X[i2]
-        Xs.append(m[None, ...])
-        ys.append(np.array([float(t)]))
-        new_ids.append(f"SYN_{t}_{ids[i1]}_{ids[i2]}")
-        n_syn += 1
-
-    X_out = np.concatenate(Xs, axis=0)
-    y_out = np.concatenate(ys, axis=0)
-    print(f"Paso 3: +{n_syn} matrices sintéticas (huecos {len(missing)} años).")
-    return X_out, y_out, new_ids, n_syn
+#
+# def augment_age_gaps(X: np.ndarray, ages: np.ndarray, ids: list[str]):
+#     """Rellena años enteros faltantes: M_t = (1-α) M1 + α M2."""
+#     ages = np.asarray(ages, dtype=float)
+#     years = np.round(ages).astype(int)
+#     ymin, ymax = int(years.min()), int(years.max())
+#     have = set(years.tolist())
+#     missing = [y for y in range(ymin, ymax + 1) if y not in have]
+#     if not missing:
+#         print("Paso 3: sin huecos de edad entera; no se interpola.")
+#         return X, ages, ids, 0
+#
+#     Xs, ys, new_ids = [X], [ages], list(ids)
+#     n_syn = 0
+#     for t in missing:
+#         lo = np.where(ages < t)[0]
+#         hi = np.where(ages > t)[0]
+#         if lo.size == 0 or hi.size == 0:
+#             continue
+#         i1 = lo[np.argmin(np.abs(ages[lo] - t))]
+#         i2 = hi[np.argmin(np.abs(ages[hi] - t))]
+#         a1, a2 = ages[i1], ages[i2]
+#         if abs(a2 - a1) < 1e-6:
+#             continue
+#         alpha = (t - a1) / (a2 - a1)
+#         m = (1.0 - alpha) * X[i1] + alpha * X[i2]
+#         Xs.append(m[None, ...])
+#         ys.append(np.array([float(t)]))
+#         new_ids.append(f"SYN_{t}_{ids[i1]}_{ids[i2]}")
+#         n_syn += 1
+#
+#     X_out = np.concatenate(Xs, axis=0)
+#     y_out = np.concatenate(ys, axis=0)
+#     print(f"Paso 3: +{n_syn} matrices sintéticas (huecos {len(missing)} años).")
+#     return X_out, y_out, new_ids, n_syn
 
 
 # ---------------------------------------------------------------------------
@@ -615,8 +627,12 @@ def main():
 
     cohort = list_inflamacion_mats(FC_ROOT, group_map=DEFAULT_GROUP_MAP)
     cohort = link_demographics(cohort)
+    cohort = merge_patients(cohort)
     cohort = cohort.dropna(subset=["age"]).copy()
+    print("contraste: CTRL vs", PATIENT_LABEL)
     print("cohorte con edad:", len(cohort), cohort.groupby("diagnosis").size().to_dict())
+    if "diagnosis_orig" in cohort.columns:
+        print("orig:", cohort.groupby("diagnosis_orig").size().to_dict())
     if len(cohort) < 15:
         print("aviso: n muy chico para 80/20 + 5-fold; los números serán inestables.")
 
@@ -640,23 +656,22 @@ def main():
     meta_te = meta.iloc[te_idx].reset_index(drop=True)
     meta_tr = meta.iloc[tr_idx].reset_index(drop=True)
     n_syn = 0
-    if not args.no_augment:
-        X_tr, y_tr, id_tr, n_syn = augment_age_gaps(X_tr, y_tr, id_tr)
-    else:
-        print("Paso 3: omitido.")
+    # Paso 3 desactivado: no interpolar matrices por huecos de edad.
+    # if not args.no_augment:
+    #     X_tr, y_tr, id_tr, n_syn = augment_age_gaps(X_tr, y_tr, id_tr)
+    print("Paso 3: omitido (sin matrices interpoladas).")
 
     g_tr, id_tr_kept = matrices_to_data_list(X_tr, y_tr, id_tr)
     g_te, id_te_kept = matrices_to_data_list(X_te, y_te, id_te)
     in_dim = int(g_tr[0].x.size(1))
 
-    real_train = [g for g, rid in zip(g_tr, id_tr_kept) if not str(rid).startswith("SYN_")]
     if args.no_grid:
         best = {"lr": 1e-3, "epochs": 150, "cv_rmse": None}
         cv_rows = []
     else:
-        best, cv_rows = grid_cv(real_train, meta_tr["age"].to_numpy(float), device)
+        best, cv_rows = grid_cv(g_tr, meta_tr["age"].to_numpy(float), device)
 
-    print("entrenando modelo final en train (+ sintéticos si hay)…")
+    print("entrenando modelo final en train (solo sujetos reales)…")
     model, fit_info = fit_gcn(g_tr, lr=best["lr"], epochs=int(best["epochs"]), device=device)
     torch.save(model.state_dict(), GCN_DIR / "gcn_coma.pt")
 
@@ -673,7 +688,7 @@ def main():
     bag["split"] = "test"
     bag["region"] = "COMA"
     cols = [
-        "record_id", "diagnosis", "age", "predicted_age", "BAG", "abs_err",
+        "record_id", "diagnosis", "diagnosis_orig", "age", "predicted_age", "BAG", "abs_err",
         "sex", "region", "etiology", "gcs", "binary_outcome", "sub_code", "split",
     ]
     cols = [c for c in cols if c in bag.columns]
@@ -699,13 +714,16 @@ def main():
         factor_info = factor_analysis(bag_all, TABLE_DIR)
 
     payload = {
+        "contrast": "CTRL_vs_pacientes",
+        "patient_sources": sorted(PATIENT_SOURCES),
+        "patient_label": PATIENT_LABEL,
         "connectivity": args.connectivity,
         "n_roi": in_dim,
         "n_subjects": int(len(ids)),
         "n_train": int(len(tr_idx)),
         "n_test": int(len(te_idx)),
         "n_synthetic_train": int(n_syn),
-        "augment": not args.no_augment,
+        "augment": False,
         "architecture": {"in": in_dim, "gcn1": HIDDEN, "gcn2": LATENT, "out": 1, "dropout": DROPOUT},
         "best_hp": best,
         "cv": cv_rows,
