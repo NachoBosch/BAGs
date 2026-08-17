@@ -1,11 +1,17 @@
 {
+  "contrast": "CTRL_vs_pacientes",
+  "patient_sources": [
+    "ANOX",
+    "TRAU"
+  ],
+  "patient_label": "pacientes",
   "connectivity": "pearson",
   "n_roi": 116,
   "n_subjects": 42,
   "n_train": 33,
   "n_test": 9,
-  "n_synthetic_train": 36,
-  "augment": true,
+  "n_synthetic_train": 0,
+  "augment": false,
   "architecture": {
     "in": 116,
     "gcn1": 64,
@@ -16,64 +22,63 @@
   "best_hp": {
     "lr": 0.001,
     "epochs": 150,
-    "cv_rmse": 24.230894438256747
+    "cv_rmse": 24.230939768955185
   },
   "cv": [
     {
       "lr": 0.001,
       "epochs": 80,
-      "cv_rmse": 24.576972172506572
+      "cv_rmse": 24.576971876557902
     },
     {
       "lr": 0.001,
       "epochs": 150,
-      "cv_rmse": 24.230894438256747
+      "cv_rmse": 24.230939768955185
     },
     {
       "lr": 0.0005,
       "epochs": 80,
-      "cv_rmse": 25.537498862392148
+      "cv_rmse": 25.537499158887773
     },
     {
       "lr": 0.0005,
       "epochs": 150,
-      "cv_rmse": 24.629266865058906
+      "cv_rmse": 24.6292668264113
     },
     {
       "lr": 0.0001,
       "epochs": 80,
-      "cv_rmse": 37.34615980109383
+      "cv_rmse": 37.34615892260472
     },
     {
       "lr": 0.0001,
       "epochs": 150,
-      "cv_rmse": 26.25225454286299
+      "cv_rmse": 26.252254100205505
     }
   ],
   "fit": {
-    "train_mse": 4.337815854428471,
+    "train_mse": 118.4934476216634,
     "epochs_run": 150
   },
   "holdout": {
     "n_test": 9,
-    "r2": -0.5625971706146891,
-    "pearson_r": 0.11154237689766186,
-    "pearson_p": 0.7751105281870365,
-    "linreg_slope": 0.082785188643701,
-    "linreg_p": 0.7751105281870365,
-    "rmse": 23.881555140971606,
-    "mde": 0.3333333333333333,
-    "cohens_f2": -0.36003979860873325,
-    "mae": 19.338017993503147
+    "r2": 0.08799260001207965,
+    "pearson_r": 0.3458012491614655,
+    "pearson_p": 0.3620150999702234,
+    "linreg_slope": 0.16284463247867711,
+    "linreg_p": 0.3620150999702234,
+    "rmse": 18.24476477362681,
+    "mde": 0.1111111111111111,
+    "cohens_f2": 0.09648233118859027,
+    "mae": 14.588454776340061
   },
   "factor_analysis": {
     "n": 42,
-    "gbr_r2_insample": 0.29611798264832223,
+    "gbr_r2_insample": 0.40631852371347044,
     "features": [
       "sex_M",
-      "dx_ANOX",
       "dx_CTRL",
-      "dx_TRAU",
+      "dx_pacientes",
       "etio_ACR",
       "etio_Cntrl",
       "etio_TC",
