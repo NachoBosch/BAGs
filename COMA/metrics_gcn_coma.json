@@ -1,0 +1,93 @@
+{
+  "connectivity": "pearson",
+  "n_roi": 116,
+  "n_subjects": 42,
+  "n_train": 33,
+  "n_test": 9,
+  "n_synthetic_train": 36,
+  "augment": true,
+  "architecture": {
+    "in": 116,
+    "gcn1": 64,
+    "gcn2": 32,
+    "out": 1,
+    "dropout": 0.3
+  },
+  "best_hp": {
+    "lr": 0.001,
+    "epochs": 150,
+    "cv_rmse": 24.230894438256747
+  },
+  "cv": [
+    {
+      "lr": 0.001,
+      "epochs": 80,
+      "cv_rmse": 24.576972172506572
+    },
+    {
+      "lr": 0.001,
+      "epochs": 150,
+      "cv_rmse": 24.230894438256747
+    },
+    {
+      "lr": 0.0005,
+      "epochs": 80,
+      "cv_rmse": 25.537498862392148
+    },
+    {
+      "lr": 0.0005,
+      "epochs": 150,
+      "cv_rmse": 24.629266865058906
+    },
+    {
+      "lr": 0.0001,
+      "epochs": 80,
+      "cv_rmse": 37.34615980109383
+    },
+    {
+      "lr": 0.0001,
+      "epochs": 150,
+      "cv_rmse": 26.25225454286299
+    }
+  ],
+  "fit": {
+    "train_mse": 4.337815854428471,
+    "epochs_run": 150
+  },
+  "holdout": {
+    "n_test": 9,
+    "r2": -0.5625971706146891,
+    "pearson_r": 0.11154237689766186,
+    "pearson_p": 0.7751105281870365,
+    "linreg_slope": 0.082785188643701,
+    "linreg_p": 0.7751105281870365,
+    "rmse": 23.881555140971606,
+    "mde": 0.3333333333333333,
+    "cohens_f2": -0.36003979860873325,
+    "mae": 19.338017993503147
+  },
+  "factor_analysis": {
+    "n": 42,
+    "gbr_r2_insample": 0.29611798264832223,
+    "features": [
+      "sex_M",
+      "dx_ANOX",
+      "dx_CTRL",
+      "dx_TRAU",
+      "etio_ACR",
+      "etio_Cntrl",
+      "etio_TC",
+      "gcs",
+      "binary_outcome"
+    ],
+    "note": "sin contaminaci\u00f3n/Gini/carga-pa\u00eds; predictores individuales de COMA"
+  },
+  "edge_thresh": 0.0,
+  "seed": 42,
+  "notes": {
+    "atlas": "AAL (tama\u00f1o real de las matrices, no 82)",
+    "pearson": "FC ya precomputada en .mat; no hay BOLD crudo",
+    "oinfo": "I(par; resto) gaussiana sobre la FC, no \u03a9 de series",
+    "step6": "sin vars de pa\u00eds; GBR cl\u00ednico opcional"
+  }
+}
