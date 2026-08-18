@@ -4,7 +4,8 @@ GCN para BAG en la cohorte COMA (pipeline tipo O-info/GCN, adaptado a nuestros d
 Qué sí se puede replicar
 ------------------------
 Pasos 1–5: cada sujeto ya tiene una matriz FC AAL (Pearson). Se construye un grafo
-por sujeto, se entrena una GCN que predice edad y se calcula BAG.
+por sujeto. La GCN aprende edad **solo en CTRL**; luego se predice edad y BAG
+en controles y en pacientes.
 
 Qué no coincide 1:1 con el paper
 --------------------------------
@@ -13,7 +14,7 @@ Qué no coincide 1:1 con el paper
   El paso 1 "Pearson" reusa esa FC (ya es correlación entre ROIs).
 - O-info (opcional): sin BOLD no se estima Ω desde series. Se usa copula gaussiana
   sobre la propia matriz de correlación: I({i,j}; resto) vía precisión.
-- n≈42: el split 80/20 + 5-fold es estadísticamente frágil; el script avisa.
+- n_CTRL≈19: CV/LOO serán inestables; el script avisa.
 - Contraste: CTRL vs pacientes (ANOX+TRAU unidos). diagnosis_orig conserva ANOX/TRAU.
 - Paso 6: no hay contaminación, Gini, carga de enfermedad ni país.
   El GBR opcional usa diagnóstico, sexo, GCS, outcome y etiología.
@@ -456,6 +457,22 @@ def grid_cv(train_graphs, ages_train: np.ndarray, device):
     return best, rows
 
 
+def loo_preds(graphs, lr: float, epochs: int, device):
+    """Edad predicha leave-one-out (solo para evaluar CTRL)."""
+    n = len(graphs)
+    preds = np.zeros(n, dtype=np.float64)
+    ys = np.zeros(n, dtype=np.float64)
+    print(f"LOO CTRL: {n} modelos…")
+    for i in range(n):
+        g_tr = [graphs[j] for j in range(n) if j != i]
+        model, _ = fit_gcn(g_tr, lr=lr, epochs=epochs, device=device)
+        pred, y, _ = _eval_preds(model, _loader([graphs[i]], False), device)
+        preds[i] = float(pred[0])
+        ys[i] = float(y[0])
+        print(f"  LOO {i + 1}/{n}  pred={preds[i]:.1f}  age={ys[i]:.1f}")
+    return preds, ys
+
+
 def age_strata(ages: np.ndarray, n_bins: int = 4) -> np.ndarray:
     ages = np.asarray(ages, dtype=float)
     n_bins = min(n_bins, max(2, len(ages) // 5))
@@ -633,67 +650,48 @@ def main():
     print("cohorte con edad:", len(cohort), cohort.groupby("diagnosis").size().to_dict())
     if "diagnosis_orig" in cohort.columns:
         print("orig:", cohort.groupby("diagnosis_orig").size().to_dict())
-    if len(cohort) < 15:
-        print("aviso: n muy chico para 80/20 + 5-fold; los números serán inestables.")
 
     X, meta = load_connectivity(cohort, args.connectivity)
     ages = meta["age"].to_numpy(float)
     ids = meta["record_id"].astype(str).tolist()
+    is_ctrl = meta["diagnosis"].to_numpy() == "CTRL"
+    n_ctrl = int(is_ctrl.sum())
+    n_pat = int((~is_ctrl).sum())
+    print(f"entrenamiento: SOLO CTRL (n={n_ctrl}); aplicación: CTRL + {PATIENT_LABEL} (n={n_pat})")
+    if n_ctrl < 8:
+        raise ValueError(f"pocos CTRL para entrenar GCN: n={n_ctrl}")
+    if n_ctrl < 20:
+        print("aviso: n_CTRL chico; CV/LOO serán inestables.")
 
-    strata = age_strata(ages)
-    try:
-        tr_idx, te_idx = next(iter(StratifiedShuffleSplit(
-            n_splits=1, test_size=TEST_SIZE, random_state=SEED,
-        ).split(np.arange(len(ids)), strata)))
-    except ValueError:
-        print("aviso: no se pudo estratificar por edad; split aleatorio.")
-        tr_idx, te_idx = train_test_split(
-            np.arange(len(ids)), test_size=TEST_SIZE, random_state=SEED,
-        )
-
-    X_tr, y_tr, id_tr = X[tr_idx], ages[tr_idx], [ids[i] for i in tr_idx]
-    X_te, y_te, id_te = X[te_idx], ages[te_idx], [ids[i] for i in te_idx]
-    meta_te = meta.iloc[te_idx].reset_index(drop=True)
-    meta_tr = meta.iloc[tr_idx].reset_index(drop=True)
+    idx_ctrl = np.where(is_ctrl)[0]
+    X_ctrl, y_ctrl, id_ctrl = X[idx_ctrl], ages[idx_ctrl], [ids[i] for i in idx_ctrl]
     n_syn = 0
-    # Paso 3 desactivado: no interpolar matrices por huecos de edad.
-    # if not args.no_augment:
-    #     X_tr, y_tr, id_tr, n_syn = augment_age_gaps(X_tr, y_tr, id_tr)
     print("Paso 3: omitido (sin matrices interpoladas).")
 
-    g_tr, id_tr_kept = matrices_to_data_list(X_tr, y_tr, id_tr)
-    g_te, id_te_kept = matrices_to_data_list(X_te, y_te, id_te)
-    in_dim = int(g_tr[0].x.size(1))
+    g_ctrl, id_ctrl_kept = matrices_to_data_list(X_ctrl, y_ctrl, id_ctrl)
+    in_dim = int(g_ctrl[0].x.size(1))
 
     if args.no_grid:
         best = {"lr": 1e-3, "epochs": 150, "cv_rmse": None}
         cv_rows = []
     else:
-        best, cv_rows = grid_cv(g_tr, meta_tr["age"].to_numpy(float), device)
+        best, cv_rows = grid_cv(g_ctrl, y_ctrl, device)
 
-    print("entrenando modelo final en train (solo sujetos reales)…")
-    model, fit_info = fit_gcn(g_tr, lr=best["lr"], epochs=int(best["epochs"]), device=device)
+    print("modelo final: todos los CTRL…")
+    model, fit_info = fit_gcn(g_ctrl, lr=best["lr"], epochs=int(best["epochs"]), device=device)
     torch.save(model.state_dict(), GCN_DIR / "gcn_coma.pt")
 
-    pred_te, y_true_te, sid_te = _eval_preds(model, _loader(g_te, False), device)
-    id_te_ord = [id_te_kept[i] for i in sid_te]
-    pred_al, y_al = pred_te, y_true_te
-    metrics = eval_holdout(y_al, pred_al)
-    print("Paso 5 hold-out:", {k: (round(v, 3) if isinstance(v, float) else v) for k, v in metrics.items()})
+    pred_ctrl_fit, y_ctrl_fit, sid_ctrl = _eval_preds(model, _loader(g_ctrl, False), device)
+    metrics_ctrl_fit = eval_holdout(y_ctrl_fit, pred_ctrl_fit)
+    print("CTRL (fit, optimista):",
+          {k: (round(v, 3) if isinstance(v, float) else v) for k, v in metrics_ctrl_fit.items()})
 
-    bag = meta_te.set_index("record_id").loc[id_te_ord].reset_index()
-    bag["predicted_age"] = pred_al
-    bag["BAG"] = pred_al - bag["age"].to_numpy(float)
-    bag["abs_err"] = np.abs(bag["BAG"])
-    bag["split"] = "test"
-    bag["region"] = "COMA"
-    cols = [
-        "record_id", "diagnosis", "diagnosis_orig", "age", "predicted_age", "BAG", "abs_err",
-        "sex", "region", "etiology", "gcs", "binary_outcome", "sub_code", "split",
-    ]
-    cols = [c for c in cols if c in bag.columns]
-    bag_path = TABLE_DIR / "bag_gcn_coma.csv"
-    bag[cols].to_csv(bag_path, index=False)
+    pred_ctrl_loo, y_ctrl_loo = loo_preds(
+        g_ctrl, lr=best["lr"], epochs=int(best["epochs"]), device=device,
+    )
+    metrics_ctrl_loo = eval_holdout(y_ctrl_loo, pred_ctrl_loo)
+    print("CTRL (LOO, honesto):",
+          {k: (round(v, 3) if isinstance(v, float) else v) for k, v in metrics_ctrl_loo.items()})
 
     g_all, id_all_kept = matrices_to_data_list(X, ages, ids)
     pred_all, _, sid_all = _eval_preds(model, _loader(g_all, False), device)
@@ -702,33 +700,66 @@ def main():
     bag_all["predicted_age"] = pred_all
     bag_all["BAG"] = pred_all - bag_all["age"].to_numpy(float)
     bag_all["abs_err"] = np.abs(bag_all["BAG"])
-    bag_all["split"] = bag_all["record_id"].astype(str).isin(set(map(str, id_te))).map(
-        {True: "test", False: "train"}
-    )
+    bag_all["predicted_age_loo"] = np.nan
+    bag_all["BAG_loo"] = np.nan
+    bag_all["abs_err_loo"] = np.nan
+
+    loo_map = {id_ctrl_kept[i]: (pred_ctrl_loo[i], y_ctrl_loo[i]) for i in range(len(id_ctrl_kept))}
+    for i, rid in enumerate(bag_all["record_id"].astype(str)):
+        if rid in loo_map:
+            p_loo, _ = loo_map[rid]
+            bag_all.loc[i, "predicted_age_loo"] = p_loo
+            bag_all.loc[i, "BAG_loo"] = p_loo - float(bag_all.loc[i, "age"])
+            bag_all.loc[i, "abs_err_loo"] = abs(p_loo - float(bag_all.loc[i, "age"]))
+
+    bag_all["split"] = np.where(bag_all["diagnosis"] == "CTRL", "train_ctrl", "apply_pacientes")
     bag_all["region"] = "COMA"
+
+    pat = bag_all[bag_all["diagnosis"] == PATIENT_LABEL]
+    metrics_pat = eval_holdout(pat["age"].to_numpy(float), pat["predicted_age"].to_numpy(float))
+    print("pacientes (modelo CTRL, nunca vistos):",
+          {k: (round(v, 3) if isinstance(v, float) else v) for k, v in metrics_pat.items()})
+    print("BAG medio CTRL (LOO):", round(float(bag_all.loc[bag_all.diagnosis == 'CTRL', 'BAG_loo'].mean()), 2))
+    print("BAG medio pacientes:", round(float(pat["BAG"].mean()), 2))
+
+    cols = [
+        "record_id", "diagnosis", "diagnosis_orig", "age", "predicted_age", "BAG", "abs_err",
+        "predicted_age_loo", "BAG_loo", "abs_err_loo",
+        "sex", "region", "etiology", "gcs", "binary_outcome", "sub_code", "split",
+    ]
+    cols = [c for c in cols if c in bag_all.columns]
+    bag_path = TABLE_DIR / "bag_gcn_coma.csv"
+    bag_all[cols].to_csv(bag_path, index=False)
     bag_all_path = TABLE_DIR / "bag_gcn_coma_all.csv"
-    bag_all[[c for c in cols if c in bag_all.columns]].to_csv(bag_all_path, index=False)
+    bag_all[cols].to_csv(bag_all_path, index=False)
+
+    bag_for_gbr = bag_all.copy()
+    if bag_for_gbr["BAG_loo"].notna().any():
+        bag_for_gbr["BAG"] = bag_for_gbr["BAG_loo"].fillna(bag_for_gbr["BAG"])
 
     factor_info = None
     if not args.no_factors:
-        factor_info = factor_analysis(bag_all, TABLE_DIR)
+        factor_info = factor_analysis(bag_for_gbr, TABLE_DIR)
 
     payload = {
         "contrast": "CTRL_vs_pacientes",
+        "train": "CTRL_only",
         "patient_sources": sorted(PATIENT_SOURCES),
         "patient_label": PATIENT_LABEL,
         "connectivity": args.connectivity,
         "n_roi": in_dim,
         "n_subjects": int(len(ids)),
-        "n_train": int(len(tr_idx)),
-        "n_test": int(len(te_idx)),
+        "n_train_ctrl": n_ctrl,
+        "n_apply_pacientes": n_pat,
         "n_synthetic_train": int(n_syn),
         "augment": False,
         "architecture": {"in": in_dim, "gcn1": HIDDEN, "gcn2": LATENT, "out": 1, "dropout": DROPOUT},
         "best_hp": best,
         "cv": cv_rows,
         "fit": fit_info,
-        "holdout": metrics,
+        "ctrl_fit": metrics_ctrl_fit,
+        "ctrl_loo": metrics_ctrl_loo,
+        "pacientes": metrics_pat,
         "factor_analysis": factor_info,
         "edge_thresh": EDGE_THRESH,
         "seed": SEED,
@@ -736,6 +767,7 @@ def main():
             "atlas": "AAL (tamaño real de las matrices, no 82)",
             "pearson": "FC ya precomputada en .mat; no hay BOLD crudo",
             "oinfo": "I(par; resto) gaussiana sobre la FC, no Ω de series",
+            "bag": "modelo de edad entrenado solo en CTRL; BAG en CTRL (LOO) y pacientes (aplicación)",
             "step6": "sin vars de país; GBR clínico opcional",
         },
     }
