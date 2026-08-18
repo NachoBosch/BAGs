@@ -1,5 +1,6 @@
 {
   "contrast": "CTRL_vs_pacientes",
+  "train": "CTRL_only",
   "patient_sources": [
     "ANOX",
     "TRAU"
@@ -8,8 +9,8 @@
   "connectivity": "pearson",
   "n_roi": 116,
   "n_subjects": 42,
-  "n_train": 33,
-  "n_test": 9,
+  "n_train_ctrl": 19,
+  "n_apply_pacientes": 23,
   "n_synthetic_train": 0,
   "augment": false,
   "architecture": {
@@ -22,59 +23,83 @@
   "best_hp": {
     "lr": 0.001,
     "epochs": 150,
-    "cv_rmse": 24.230939768955185
+    "cv_rmse": 22.922650031008285
   },
   "cv": [
     {
       "lr": 0.001,
       "epochs": 80,
-      "cv_rmse": 24.576971876557902
+      "cv_rmse": 23.527780124850132
     },
     {
       "lr": 0.001,
       "epochs": 150,
-      "cv_rmse": 24.230939768955185
+      "cv_rmse": 22.922650031008285
     },
     {
       "lr": 0.0005,
       "epochs": 80,
-      "cv_rmse": 25.537499158887773
+      "cv_rmse": 24.0772297523633
     },
     {
       "lr": 0.0005,
       "epochs": 150,
-      "cv_rmse": 24.6292668264113
+      "cv_rmse": 23.768092266952973
     },
     {
       "lr": 0.0001,
       "epochs": 80,
-      "cv_rmse": 37.34615892260472
+      "cv_rmse": 41.69970212271045
     },
     {
       "lr": 0.0001,
       "epochs": 150,
-      "cv_rmse": 26.252254100205505
+      "cv_rmse": 32.65450393313093
     }
   ],
   "fit": {
-    "train_mse": 118.4934476216634,
+    "train_mse": 175.06116284822164,
     "epochs_run": 150
   },
-  "holdout": {
-    "n_test": 9,
-    "r2": 0.08799260001207965,
-    "pearson_r": 0.3458012491614655,
-    "pearson_p": 0.3620150999702234,
-    "linreg_slope": 0.16284463247867711,
-    "linreg_p": 0.3620150999702234,
-    "rmse": 18.24476477362681,
-    "mde": 0.1111111111111111,
-    "cohens_f2": 0.09648233118859027,
-    "mae": 14.588454776340061
+  "ctrl_fit": {
+    "n_test": 19,
+    "r2": 0.4817853611543208,
+    "pearson_r": 0.6985536944302776,
+    "pearson_p": 0.0008780848290066162,
+    "linreg_slope": 0.4468091363891966,
+    "linreg_p": 0.0008780848290066243,
+    "rmse": 13.42260908335457,
+    "mde": -0.15789473684210525,
+    "cohens_f2": 0.9297023376790272,
+    "mae": 10.912302619532534
+  },
+  "ctrl_loo": {
+    "n_test": 19,
+    "r2": -0.6655956166124357,
+    "pearson_r": 0.05224890625656561,
+    "pearson_p": 0.8317711887633166,
+    "linreg_slope": 0.045257571018854956,
+    "linreg_p": 0.8317711887633166,
+    "rmse": 24.06394842889146,
+    "mde": -0.15789473684210525,
+    "cohens_f2": -0.3996141740371258,
+    "mae": 18.903665040668688
+  },
+  "pacientes": {
+    "n_test": 23,
+    "r2": -0.29321359756264753,
+    "pearson_r": 0.1603808964512829,
+    "pearson_p": 0.4647675315498963,
+    "linreg_slope": 0.11477341070253072,
+    "linreg_p": 0.4647675315498963,
+    "rmse": 21.69044737072097,
+    "mde": -0.043478260869565216,
+    "cohens_f2": -0.2267325352248651,
+    "mae": 17.70754225357719
   },
   "factor_analysis": {
     "n": 42,
-    "gbr_r2_insample": 0.40631852371347044,
+    "gbr_r2_insample": 0.38612896823897935,
     "features": [
       "sex_M",
       "dx_CTRL",
@@ -93,6 +118,7 @@
     "atlas": "AAL (tama\u00f1o real de las matrices, no 82)",
     "pearson": "FC ya precomputada en .mat; no hay BOLD crudo",
     "oinfo": "I(par; resto) gaussiana sobre la FC, no \u03a9 de series",
+    "bag": "modelo de edad entrenado solo en CTRL; BAG en CTRL (LOO) y pacientes (aplicaci\u00f3n)",
     "step6": "sin vars de pa\u00eds; GBR cl\u00ednico opcional"
   }
 }
